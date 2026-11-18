@@ -672,6 +672,15 @@ button, input, select, textarea {
   box-shadow: var(--shadow-xs);
 }
 
+/* Mobile-only elements hidden on desktop */
+.mobile-bottom-nav {
+  display: none !important;
+}
+
+.sidebar-mobile-backdrop {
+  display: none !important;
+}
+
 .header-title-box {
   display: flex;
   flex-direction: column;
@@ -2527,6 +2536,7 @@ td.date-today {
   }
 
   .sidebar-mobile-backdrop {
+    display: block !important;
     position: fixed;
     inset: 0;
     background: rgba(3, 10, 8, 0.65);
