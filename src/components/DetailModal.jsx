@@ -1,6 +1,19 @@
 import React from 'react';
 
 /**
+ * Converts a Google Drive link or ID into a clean image preview/thumbnail URL
+ */
+export function getDriveImagePreview(url) {
+  if (!url || typeof url !== 'string') return '';
+  if (url.startsWith('data:')) return url;
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) {
+    return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
+  }
+  return url;
+}
+
+/**
  * Universal Mobile & Desktop Record Detail Modal
  * Displays comprehensive key-value information, status, readings, and photos
  * inspired by modern mobile app card UI.
@@ -137,7 +150,7 @@ export default function DetailModal({
                     lineHeight: 1.35
                   }}
                 >
-                  {it.value || '—'}
+                  {it.value !== undefined && it.value !== null && it.value !== '' ? it.value : '—'}
                 </div>
               </div>
             );
@@ -187,7 +200,7 @@ export default function DetailModal({
                     Z{i + 1}
                   </div>
                   <div style={{ fontSize: '14px', fontWeight: 800, fontFamily: 'var(--f-mono)', color: 'var(--primary)' }}>
-                    {val || '—'}
+                    {val !== undefined && val !== null && String(val).trim() !== '' && !isNaN(Number(val)) ? val : '—'}
                   </div>
                 </div>
               ))}
@@ -207,17 +220,32 @@ export default function DetailModal({
               textAlign: 'center'
             }}
           >
-            <div style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', textAlign: 'left' }}>
-              Inspection Photo
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+              <span>Inspection Photo</span>
+              {typeof photoUrl === 'string' && photoUrl.startsWith('http') && (
+                <a
+                  href={photoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: 'var(--primary)', textTransform: 'none', fontWeight: 600, fontSize: '12px' }}
+                >
+                  Open in Google Drive ↗
+                </a>
+              )}
             </div>
             <img
-              src={photoUrl}
+              src={getDriveImagePreview(photoUrl)}
               alt="Inspection Record"
               style={{
                 width: '100%',
                 maxHeight: '260px',
-                objectFit: 'cover',
-                display: 'block'
+                objectFit: 'contain',
+                display: 'block',
+                background: 'rgba(0,0,0,0.05)'
+              }}
+              onError={(e) => {
+                // If direct thumbnail fails, keep container clean
+                e.target.style.display = 'none';
               }}
             />
           </div>

@@ -27,6 +27,14 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
   const [editingInspection, setEditingInspection] = useState(null);
   const [editAvgTemp, setEditAvgTemp] = useState('');
   const [editInspector, setEditInspector] = useState('');
+  const [editVisitDate, setEditVisitDate] = useState('');
+  const [editExpectedShutdown, setEditExpectedShutdown] = useState('');
+  const [editInnerTemp, setEditInnerTemp] = useState('');
+  const [editDaysSinceStart, setEditDaysSinceStart] = useState('');
+  const [editInnerPhoto, setEditInnerPhoto] = useState('');
+  const [editCampaignLifeSlip, setEditCampaignLifeSlip] = useState('');
+  const [editCampaignLifeSlipName, setEditCampaignLifeSlipName] = useState('');
+  const [editZoneReadings, setEditZoneReadings] = useState(Array(9).fill(''));
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Selected Order for Inspection Form
@@ -43,8 +51,16 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
   const today = todayISO();
 
   // 1. Pending Tab Orders: Orders from Company Visit that have Step 2 'running' pending
+  // Must NOT already be completed in runningInspections history!
+  const completedOrderNos = new Set(
+    (data.runningInspections || []).map((ins) => String(ins.serviceOrderNo || '').trim().toUpperCase())
+  );
+
   const pendingRunningTasks = (data.stepTasks || []).filter(
-    (t) => t.step === 'running' && t.status === 'pending'
+    (t) =>
+      t.step === 'running' &&
+      t.status === 'pending' &&
+      !completedOrderNos.has(String(t.serviceOrderNo || '').trim().toUpperCase())
   );
 
   const pendingList = pendingRunningTasks.map((task) => {
@@ -91,13 +107,19 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
     const company = order ? (data.companies || []).find((c) => c.id === order.companyId) : null;
     const kiln = order ? (data.kilns || []).find((k) => k.id === order.kilnId) : null;
 
+    const zoneTemps = (Array.isArray(ins.zoneTemps) && ins.zoneTemps.some((v) => v !== null && v !== ''))
+      ? ins.zoneTemps
+      : (Array.isArray(ins.zones) ? ins.zones : []);
+
     return {
       ...ins,
-      partyName: company ? company.name : 'Unknown Plant',
-      kilnNo: kiln ? kiln.kilnNo : 1,
-      kilnSize: kiln ? kiln.size : '100 TPD',
-      campaignNo: order?.campaignNo || '—',
-      campaignStartDate: order?.campaignStartDate || '—'
+      partyName: ins.partyName || (company ? company.name : 'Unknown Plant'),
+      kilnNo: ins.kilnNo || (kiln ? kiln.kilnNo : 1),
+      kilnSize: ins.kilnSize || (kiln ? kiln.size : '100 TPD'),
+      campaignNo: ins.campaignNo || order?.campaignNo || '—',
+      campaignStartDate: ins.campaignStartDate || order?.campaignStartDate || null,
+      zoneTemps,
+      zones: zoneTemps
     };
   });
 
@@ -123,6 +145,19 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
 
   // Live average of outer temp zones
   const liveAvg = avg(zoneReadings);
+
+  // Helper to cleanly format Zone 1-9 Outer Temps without extraneous commas or spaces
+  const formatZoneTempsDisplay = (ins) => {
+    if (!ins) return '—';
+    const raw = Array.isArray(ins.zoneTemps) && ins.zoneTemps.length > 0
+      ? ins.zoneTemps
+      : (Array.isArray(ins.zones) ? ins.zones : []);
+    const valid = raw
+      .map((v) => (v !== null && v !== undefined ? String(v).trim() : ''))
+      .filter((v) => v !== '' && v !== '—' && v !== '-' && !isNaN(Number(v)));
+    if (valid.length === 0) return '—';
+    return valid.join(', ');
+  };
 
   // Active inspecting order details
   const activeRow = pendingList.find((p) => p.serviceOrderNo === selectedOrderNo);
@@ -204,21 +239,36 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
 
       // Record running inspection
       if (!Array.isArray(nextData.runningInspections)) nextData.runningInspections = [];
-      nextData.runningInspections.push({
+      const zoneValues = zoneReadings.map((z) => (z === '' ? null : Number(z)));
+      const newRunningRecord = {
         serviceOrderNo: selectedOrderNo,
+        partyName: activeRow?.partyName || ord?.companyName || 'Unknown Plant',
+        kilnNo: ord?.kilnNo || activeRow?.kilnNo || 1,
+        kilnSize: ord?.kilnSize || activeRow?.kilnSize || '100 TPD',
         campaignNo: ord?.campaignNo || activeRow?.campaignNo || '1',
         campaignStartDate: ord?.campaignStartDate || activeRow?.campaignStartDate || null,
         visitDate,
         inspector: inspector.trim(),
-        innerTemp: Number(innerTemp) || 0,
+        innerTemp: innerTemp !== '' ? Number(innerTemp) : '',
         innerTempPhoto: innerPhoto,
         campaignLifeFormatSlip: campaignLifeSlip,
         campaignLifeFormatSlipName: campaignLifeSlipName,
-        zoneTemps: zoneReadings.map((z) => (z === '' ? null : Number(z))),
+        zoneTemps: zoneValues,
+        zones: zoneValues,
         avgTemp: liveAvg,
         expectedShutdownDate: expectedShutdown,
         daysSinceStart
-      });
+      };
+
+      const existingIdx = nextData.runningInspections.findIndex((r) => r.serviceOrderNo === selectedOrderNo);
+      if (existingIdx >= 0) {
+        nextData.runningInspections[existingIdx] = {
+          ...nextData.runningInspections[existingIdx],
+          ...newRunningRecord
+        };
+      } else {
+        nextData.runningInspections.push(newRunningRecord);
+      }
 
       // Schedule Step 3 Task: Take shut down date (expectedShutdown - 3 working days)
       const plannedCall = expectedShutdown;
@@ -242,13 +292,26 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
         });
       }
 
-      // Dynamic Google Sheets sync first
+      // Dynamic Google Sheets sync first (never touch Planned or Delay cols)
       await syncStepToGoogleSheet(2, selectedOrderNo, {
-        avgTemp: liveAvg,
-        daysSinceStart,
-        expectedShutdownDate: expectedShutdown,
+        partyName: activeRow?.partyName || ord?.companyName || '',
+        kilnNo: ord?.kilnNo || activeRow?.kilnNo || 1,
+        kilnSize: ord?.kilnSize || activeRow?.kilnSize || '',
+        kilnNoAndSize: `Kiln ${activeRow?.kilnNo || ord?.kilnNo || 1} (${activeRow?.kilnSize || ord?.kilnSize || '100 TPD'})`,
+        campaignNo: ord?.campaignNo || activeRow?.campaignNo || '1',
+        campaignStartDate: ord?.campaignStartDate || activeRow?.campaignStartDate || '',
+        visitDate,
+        actualStep2: visitDate,
         inspector: inspector.trim(),
-        plannedCallDate: plannedCall
+        innerTemp: innerTemp !== '' ? Number(innerTemp) : '',
+        innerTempPhoto: innerPhoto,
+        campaignLifeFormatSlip: campaignLifeSlip,
+        campaignLifeFormatSlipName: campaignLifeSlipName,
+        zoneTemps: zoneValues,
+        avgTemp: liveAvg,
+        expectedShutdownDate: expectedShutdown,
+        daysSinceStart,
+        driveFolderId: '1dB3lvy4wBfrTBl69vdpP-ahKkt7nSOt8'
       });
 
       await saveData(nextData);
@@ -267,7 +330,11 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
   // Filtered lists
   const filteredPending = pendingList.filter((p) => {
     const q = search.toLowerCase();
-    return p.serviceOrderNo.toLowerCase().includes(q) || p.partyName.toLowerCase().includes(q);
+    return (
+      p.serviceOrderNo.toLowerCase().includes(q) ||
+      p.partyName.toLowerCase().includes(q) ||
+      (p.inspectionIncharge || '').toLowerCase().includes(q)
+    );
   });
 
   const filteredHistory = historyList.filter((h) => {
@@ -300,11 +367,105 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
     }
   };
 
+  const handleSyncHistoryToSheet = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      if (historyList.length === 0) {
+        notify('No recorded inspections in history to sync', 'bad');
+        setIsSyncing(false);
+        return;
+      }
+      for (const ins of historyList) {
+        await syncStepToGoogleSheet(2, ins.serviceOrderNo, {
+          partyName: ins.partyName || '',
+          kilnNo: ins.kilnNo || 1,
+          kilnSize: ins.kilnSize || '',
+          kilnNoAndSize: `Kiln ${ins.kilnNo || 1} (${ins.kilnSize || '100 TPD'})`,
+          campaignNo: ins.campaignNo || '1',
+          campaignStartDate: ins.campaignStartDate || '',
+          visitDate: ins.visitDate || todayISO(),
+          actualStep2: ins.visitDate || todayISO(),
+          inspector: ins.inspector || '',
+          innerTemp: ins.innerTemp !== undefined && ins.innerTemp !== null ? ins.innerTemp : '',
+          innerTempPhoto: ins.innerTempPhoto || '',
+          campaignLifeFormatSlip: ins.campaignLifeFormatSlip || '',
+          campaignLifeFormatSlipName: ins.campaignLifeFormatSlipName || '',
+          zoneTemps: Array.isArray(ins.zoneTemps) ? ins.zoneTemps : (Array.isArray(ins.zones) ? ins.zones : []),
+          avgTemp: ins.avgTemp || '',
+          expectedShutdownDate: ins.expectedShutdownDate || '',
+          daysSinceStart: ins.daysSinceStart !== undefined && ins.daysSinceStart !== null ? ins.daysSinceStart : 0,
+          driveFolderId: '1dB3lvy4wBfrTBl69vdpP-ahKkt7nSOt8'
+        });
+      }
+      await refresh();
+      notify(`Synced ${historyList.length} inspection(s) directly to Running Kiln Inspection tab!`, 'good');
+    } catch (err) {
+      notify('Sync error: ' + err.message, 'bad');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleOpenEdit = (ins) => {
     setEditingInspection(ins);
     setEditAvgTemp(ins.avgTemp || '');
     setEditInspector(ins.inspector || '');
+    setEditVisitDate(ins.visitDate || todayISO());
+    setEditExpectedShutdown(ins.expectedShutdownDate || '');
+    setEditInnerTemp(ins.innerTemp !== undefined && ins.innerTemp !== null ? ins.innerTemp : '');
+    setEditDaysSinceStart(ins.daysSinceStart !== undefined && ins.daysSinceStart !== null ? ins.daysSinceStart : '');
+    setEditInnerPhoto(ins.innerTempPhoto || '');
+    setEditCampaignLifeSlip(ins.campaignLifeFormatSlip || '');
+    setEditCampaignLifeSlipName(ins.campaignLifeFormatSlipName || '');
+    const rawZones = Array.isArray(ins.zoneTemps) && ins.zoneTemps.length > 0
+      ? ins.zoneTemps
+      : (Array.isArray(ins.zones) ? ins.zones : []);
+    setEditZoneReadings(
+      Array.from({ length: 9 }, (_, i) => {
+        const val = rawZones[i];
+        if (val !== undefined && val !== null && String(val).trim() !== '' && !isNaN(Number(val))) {
+          return Number(val);
+        }
+        return '';
+      })
+    );
   };
+
+  const handleEditPhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const resizedBase64 = await resizeImage(file, 800);
+      setEditInnerPhoto(resizedBase64);
+      notify('Photo uploaded & resized to max 800px', 'good');
+    } catch (err) {
+      notify('Photo upload error: ' + err.message, 'bad');
+    }
+  };
+
+  const handleEditCampaignLifeSlipUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const fileData = file.type.startsWith('image/')
+        ? await resizeImage(file, 1200)
+        : await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read the selected file'));
+          reader.readAsDataURL(file);
+        });
+      setEditCampaignLifeSlip(fileData);
+      setEditCampaignLifeSlipName(file.name);
+      notify(`Slip attached: ${file.name}`, 'good');
+    } catch (err) {
+      notify('Slip upload error: ' + err.message, 'bad');
+    }
+  };
+
+  // Live average for edit modal
+  const editLiveAvg = avg(editZoneReadings);
 
   const handleSaveEdit = async (e) => {
     e.preventDefault();
@@ -312,17 +473,53 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
     setIsSavingEdit(true);
     try {
       const nextData = { ...data };
+      const finalAvg = editLiveAvg || (editAvgTemp ? String(editAvgTemp).trim() : '');
+      const zoneValues = editZoneReadings.map((z) => (z === '' ? null : Number(z)));
+      
       const ins = (nextData.runningInspections || []).find((x) => x.serviceOrderNo === editingInspection.serviceOrderNo);
       if (ins) {
-        ins.avgTemp = editAvgTemp.trim();
+        ins.avgTemp = finalAvg;
         ins.inspector = editInspector.trim();
+        ins.visitDate = editVisitDate;
+        ins.expectedShutdownDate = editExpectedShutdown;
+        ins.innerTemp = editInnerTemp !== '' ? Number(editInnerTemp) : '';
+        ins.innerTempPhoto = editInnerPhoto;
+        ins.campaignLifeFormatSlip = editCampaignLifeSlip;
+        ins.campaignLifeFormatSlipName = editCampaignLifeSlipName;
+        ins.zoneTemps = zoneValues;
+        ins.zones = zoneValues;
+        if (editDaysSinceStart !== '') {
+          ins.daysSinceStart = editDaysSinceStart;
+        }
+      }
+      const ord = (nextData.orders || []).find((x) => x.serviceOrderNo === editingInspection.serviceOrderNo);
+      if (ord) {
+        ord.expectedShutdownDate = editExpectedShutdown;
+        if (editInspector.trim()) {
+          ord.inspectionIncharge = editInspector.trim();
+        }
       }
 
-      // Sync specific edited record immediately
+      // Sync specific edited record immediately (NEVER touching Planned or Delay cols!)
       await syncStepToGoogleSheet(2, editingInspection.serviceOrderNo, {
-        avgTemp: editAvgTemp.trim(),
+        partyName: editingInspection.partyName || '',
+        kilnNo: editingInspection.kilnNo || 1,
+        kilnSize: editingInspection.kilnSize || '',
+        kilnNoAndSize: `Kiln ${editingInspection.kilnNo || 1} (${editingInspection.kilnSize || '100 TPD'})`,
+        campaignNo: editingInspection.campaignNo || '1',
+        campaignStartDate: editingInspection.campaignStartDate || '',
+        visitDate: editVisitDate,
+        actualStep2: editVisitDate,
         inspector: editInspector.trim(),
-        expectedShutdownDate: ins?.expectedShutdownDate || editingInspection.expectedShutdownDate
+        innerTemp: editInnerTemp !== '' ? Number(editInnerTemp) : '',
+        innerTempPhoto: editInnerPhoto,
+        campaignLifeFormatSlip: editCampaignLifeSlip,
+        campaignLifeFormatSlipName: editCampaignLifeSlipName,
+        zoneTemps: zoneValues,
+        avgTemp: finalAvg,
+        expectedShutdownDate: editExpectedShutdown,
+        daysSinceStart: editDaysSinceStart !== '' ? editDaysSinceStart : (editingInspection.daysSinceStart || 0),
+        driveFolderId: '1dB3lvy4wBfrTBl69vdpP-ahKkt7nSOt8'
       });
 
       await saveData(nextData);
@@ -428,6 +625,7 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
                   <th>Kiln No. & Size</th>
                   <th>Campaign No.</th>
                   <th>Campaign Start Date</th>
+                  <th>Inspection Incharge</th>
                   <th>Planned Inspection Date</th>
                   <th>Status</th>
                   <th>Action</th>
@@ -436,7 +634,7 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
               <tbody>
                 {paginatedPending.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
                       ✓ All company visits have completed running inspections! No pending tasks in this queue.
                     </td>
                   </tr>
@@ -461,6 +659,7 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
                         </td>
                         <td className="mono">Camp. {row.campaignNo}</td>
                         <td>{formatDate(row.campaignStartDate)}</td>
+                        <td>{row.inspectionIncharge || '—'}</td>
                         <td className="mono">{formatDate(row.plannedDate)}</td>
                         <td>
                           {isLate ? (
@@ -503,9 +702,24 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
       {/* TAB 2: HISTORY TAB */}
       {activeTab === 'history' && (
         <div className="card-panel">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
             <h2 style={{ margin: 0 }}>Completed Running Inspections History ({filteredHistory.length})</h2>
-            <span className="pill good">Recorded Inspections</span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn small"
+                onClick={handleSyncHistoryToSheet}
+                disabled={isSyncing}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                title="Send all history inspections directly to Google Sheet"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={isSyncing ? 'spin' : ''}>
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                </svg>
+                {isSyncing ? 'Syncing...' : 'Sync to Sheet'}
+              </button>
+              <span className="pill good">Recorded Inspections</span>
+            </div>
           </div>
 
           <div className="tablewrap">
@@ -555,7 +769,9 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
                       <td>{formatDate(ins.campaignStartDate)}</td>
                       <td>{formatDate(ins.visitDate)}</td>
                       <td>{ins.inspector}</td>
-                      <td className="n mono">{ins.innerTemp || '—'} °C</td>
+                      <td className="n mono">
+                        {ins.innerTemp !== undefined && ins.innerTemp !== null && ins.innerTemp !== '' ? `${ins.innerTemp} °C` : '—'}
+                      </td>
                       <td>
                         {ins.innerTempPhoto ? (
                           <a
@@ -563,13 +779,14 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
                             target="_blank"
                             rel="noreferrer"
                             onClick={(e) => e.stopPropagation()}
+                            style={{ color: 'var(--primary)', fontWeight: 600, textDecoration: 'underline' }}
                           >
                             View photo
                           </a>
                         ) : '—'}
                       </td>
                       <td className="mono" style={{ fontSize: '12px' }}>
-                        {(ins.zoneTemps || []).filter((v) => v !== null).join(', ') || '—'}
+                        {formatZoneTempsDisplay(ins)}
                       </td>
                       <td className="n mono" style={{ fontWeight: 700, color: 'var(--primary)' }}>
                         {ins.avgTemp || '—'} °C
@@ -582,12 +799,15 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
                             target="_blank"
                             rel="noreferrer"
                             onClick={(e) => e.stopPropagation()}
+                            style={{ color: 'var(--primary)', fontWeight: 600, textDecoration: 'underline' }}
                           >
                             {ins.campaignLifeFormatSlipName || 'View slip'}
                           </a>
                         ) : '—'}
                       </td>
-                      <td className="n mono">{ins.daysSinceStart || '—'} d</td>
+                      <td className="n mono">
+                        {ins.daysSinceStart !== undefined && ins.daysSinceStart !== null && ins.daysSinceStart !== '' ? `${ins.daysSinceStart} d` : '—'}
+                      </td>
                       <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                         <button
                           type="button"
@@ -797,10 +1017,6 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
                 </div>
               </div>
 
-              <div style={{ background: 'var(--primary-soft)', padding: '12px', borderRadius: '8px', fontSize: '12.5px', color: 'var(--text)' }}>
-                ℹ Submitting will complete Running Inspection for <b>{selectedOrderNo}</b>, automatically move this record to the <b>History tab</b>, and schedule Take Shut Down Date for the <b>Expected Shutdown Date</b> ({expectedShutdown ? formatDate(expectedShutdown) : '—'}).
-              </div>
-
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' }}>
                 <button type="button" className="btn" onClick={() => setShowModal(false)}>
                   Cancel
@@ -817,7 +1033,7 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
       {/* EDIT RUNNING INSPECTION MODAL */}
       {editingInspection && (
         <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: '480px' }}>
+          <div className="modal-card" style={{ maxWidth: '580px', maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="modal-header">
               <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
                 Edit Inspection Record (<span className="cn">{editingInspection.serviceOrderNo}</span>)
@@ -828,44 +1044,189 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
             </div>
 
             <form onSubmit={handleSaveEdit}>
-              <div className="field">
-                <label>Party Name (Read-only)</label>
-                <input
-                  type="text"
-                  readOnly
-                  disabled
-                  value={editingInspection.partyName || 'Plant'}
-                  className="input-text"
-                  style={{ background: 'var(--surface-subtle)', cursor: 'not-allowed' }}
-                />
+              <div className="fieldrow">
+                <div className="field">
+                  <label>Party Name (Read-only)</label>
+                  <input
+                    type="text"
+                    readOnly
+                    disabled
+                    value={editingInspection.partyName || 'Plant'}
+                    className="input-text"
+                    style={{ background: 'var(--surface-subtle)', cursor: 'not-allowed' }}
+                  />
+                </div>
+                <div className="field">
+                  <label>Kiln No. & Size (Read-only)</label>
+                  <input
+                    type="text"
+                    readOnly
+                    disabled
+                    value={`Kiln ${editingInspection.kilnNo || '1'} (${editingInspection.kilnSize || '100 TPD'})`}
+                    className="input-text"
+                    style={{ background: 'var(--surface-subtle)', cursor: 'not-allowed' }}
+                  />
+                </div>
               </div>
 
-              <div className="field">
-                <label>Inspector Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={editInspector}
-                  onChange={(e) => setEditInspector(e.target.value)}
-                  placeholder="Enter inspector name"
-                  className="input-text"
-                />
+              <div className="fieldrow">
+                <div className="field">
+                  <label>Inspector Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editInspector}
+                    onChange={(e) => setEditInspector(e.target.value)}
+                    placeholder="Enter inspector name"
+                    className="input-text"
+                  />
+                </div>
+                <div className="field">
+                  <label>Inspection Visit Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editVisitDate}
+                    onChange={(e) => setEditVisitDate(e.target.value)}
+                    className="input-text"
+                  />
+                </div>
               </div>
 
-              <div className="field">
-                <label>Avg. Temp of Kiln (°C) *</label>
-                <input
-                  type="number"
-                  required
-                  value={editAvgTemp}
-                  onChange={(e) => setEditAvgTemp(e.target.value)}
-                  placeholder="e.g. 280"
-                  className="input-text"
-                />
+              <div className="fieldrow">
+                <div className="field">
+                  <label>Inner Temperature of Kiln (°C)</label>
+                  <input
+                    type="number"
+                    value={editInnerTemp}
+                    onChange={(e) => setEditInnerTemp(e.target.value)}
+                    placeholder="e.g. 950"
+                    className="input-text"
+                  />
+                </div>
+                <div className="field">
+                  <label>Expected Shutdown Date</label>
+                  <input
+                    type="date"
+                    value={editExpectedShutdown}
+                    onChange={(e) => setEditExpectedShutdown(e.target.value)}
+                    className="input-text"
+                  />
+                </div>
               </div>
 
-              <div style={{ background: 'var(--surface-subtle)', padding: '10px 12px', borderRadius: '8px', marginTop: '10px', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                ℹ Changes are saved and synchronized in real time.
+              {/* 9 ZONES INPUT GRID FOR EDIT */}
+              <div style={{ marginTop: '10px', marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  Zone 1 to Zone 9 Outer Shell Temperatures (°C)
+                </label>
+                <div className="zones-grid">
+                  {Array.from({ length: 9 }, (_, i) => (
+                    <div className="zone-cell" key={i}>
+                      <label htmlFor={`edit_z${i + 1}`}>Zone {i + 1}</label>
+                      <input
+                        id={`edit_z${i + 1}`}
+                        type="number"
+                        placeholder="—"
+                        value={editZoneReadings[i]}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const next = [...editZoneReadings];
+                          next[i] = val;
+                          setEditZoneReadings(next);
+                        }}
+                        className="input-text"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="live-avg-banner" style={{ marginTop: '8px' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      Average Outer Shell Temperature
+                    </div>
+                    <small style={{ color: 'var(--text-muted)' }}>Auto-calculated across 9 zones</small>
+                  </div>
+                  <b>{editLiveAvg || editAvgTemp || '—'} °C</b>
+                </div>
+              </div>
+
+              {/* INNER TEMP PHOTO ATTACHMENT */}
+              <div className="field" style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                  Photo of Inner Temp Reading (Google Drive Sync)
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <label className="btn small secondary" style={{ cursor: 'pointer', margin: 0 }}>
+                    {editInnerPhoto ? 'Replace Photo' : 'Upload New Photo'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={handleEditPhotoUpload}
+                    />
+                  </label>
+                  {editInnerPhoto && typeof editInnerPhoto === 'string' && (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                      {editInnerPhoto.startsWith('http') ? (
+                        <a href={editInnerPhoto} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', fontWeight: 600 }}>
+                          View in Google Drive ↗
+                        </a>
+                      ) : (
+                        <span style={{ color: 'var(--primary)', fontWeight: 600 }}>New photo selected</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setEditInnerPhoto('')}
+                        style={{ background: 'none', border: 'none', color: 'var(--error, #C93838)', cursor: 'pointer', fontSize: '14px' }}
+                        title="Remove photo"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* CAMPAIGN LIFE SLIP ATTACHMENT */}
+              <div className="field" style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                  Campaign Life Format Slip (Google Drive Sync)
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <label className="btn small secondary" style={{ cursor: 'pointer', margin: 0 }}>
+                    {editCampaignLifeSlip ? 'Replace Document' : 'Upload Document'}
+                    <input
+                      type="file"
+                      accept="image/*,.pdf,.doc,.docx"
+                      style={{ display: 'none' }}
+                      onChange={handleEditCampaignLifeSlipUpload}
+                    />
+                  </label>
+                  {editCampaignLifeSlip && (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                      {editCampaignLifeSlip.startsWith('http') ? (
+                        <a href={editCampaignLifeSlip} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', fontWeight: 600 }}>
+                          {editCampaignLifeSlipName || 'View Slip in Drive ↗'}
+                        </a>
+                      ) : (
+                        <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{editCampaignLifeSlipName || 'New document selected'}</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditCampaignLifeSlip('');
+                          setEditCampaignLifeSlipName('');
+                        }}
+                        style={{ background: 'none', border: 'none', color: 'var(--error, #C93838)', cursor: 'pointer', fontSize: '14px' }}
+                        title="Remove document"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
@@ -897,9 +1258,9 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
             { label: 'Campaign Start Date', value: formatDate(viewingInspection.campaignStartDate) },
             { label: 'Inspection Visit Date', value: formatDate(viewingInspection.visitDate || viewingInspection.plannedDate) },
             { label: 'Inspector Name', value: viewingInspection.inspector || '—' },
-            { label: 'Inner Temp', value: viewingInspection.innerTemp ? `${viewingInspection.innerTemp} °C` : '—', mono: true },
+            { label: 'Inner Temp', value: (viewingInspection.innerTemp !== undefined && viewingInspection.innerTemp !== null && viewingInspection.innerTemp !== '') ? `${viewingInspection.innerTemp} °C` : '—', mono: true },
             { label: 'Expected Shutdown Date', value: formatDate(viewingInspection.expectedShutdownDate) },
-            { label: 'Days Running Since Start', value: viewingInspection.daysSinceStart ? `${viewingInspection.daysSinceStart} days` : '—', mono: true },
+            { label: 'Days Running Since Start', value: (viewingInspection.daysSinceStart !== undefined && viewingInspection.daysSinceStart !== null && viewingInspection.daysSinceStart !== '') ? `${viewingInspection.daysSinceStart} days` : '—', mono: true },
             ...(viewingInspection.campaignLifeFormatSlip ? [{
               label: 'Campaign Slip Document',
               value: (
@@ -915,12 +1276,12 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
               fullWidth: true
             }] : [])
           ]}
-          readings={viewingInspection.zoneTemps ? {
+          readings={(viewingInspection.zoneTemps || viewingInspection.zones) ? {
             title: 'Zone 1-9 Outer Shell Temperatures (°C)',
             unit: '°C',
-            values: viewingInspection.zoneTemps
+            values: viewingInspection.zoneTemps || viewingInspection.zones
           } : null}
-          photoUrl={viewingInspection.innerTempPhoto}
+          photoUrl={viewingInspection.innerTempPhoto || viewingInspection.photo}
           onEdit={viewingInspection.avgTemp ? () => {
             const item = viewingInspection;
             setViewingInspection(null);

@@ -498,9 +498,6 @@ export default function CallTracker({ data, refresh, notify }) {
                     onChange={(e) => setExpectedDate(e.target.value)}
                     className="input-text"
                   />
-                  <small style={{ color: 'var(--success)', marginTop: '4px', display: 'block', fontWeight: 600 }}>
-                    ✓ This confirms the shutdown date and automatically schedules Shutdown Inspection for this date!
-                  </small>
                 </div>
               ) : (
                 <div className="fieldrow" style={{ background: 'var(--surface-subtle)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>

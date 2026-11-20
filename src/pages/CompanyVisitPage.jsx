@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { todayISO, formatDate, addWorkingDays } from '../utils/workflow';
 import { saveData } from '../services/storage';
-import { syncStepToGoogleSheet, syncStepChangesFromSheet } from '../services/googleSheets';
+import { syncStepToGoogleSheet, syncStepChangesFromSheet, deleteOrderFromGoogleSheet } from '../services/googleSheets';
 import CustomSelect from '../components/CustomSelect';
 import Pagination from '../components/Pagination';
 import DetailModal from '../components/DetailModal';
@@ -21,10 +21,15 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
   const [pageSize, setPageSize] = useState(10);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Edit Modal State
+  // Edit Modal State (Full editing of all fields)
   const [editingVisit, setEditingVisit] = useState(null);
-  const [editIncharge, setEditIncharge] = useState('');
+  const [editCompanyId, setEditCompanyId] = useState('');
+  const [editWhat, setEditWhat] = useState('First Campaign In FMS');
+  const [editStartDate, setEditStartDate] = useState('');
   const [editCampaignNo, setEditCampaignNo] = useState('');
+  const [editKilnSize, setEditKilnSize] = useState('');
+  const [editKilnNo, setEditKilnNo] = useState('');
+  const [editIncharge, setEditIncharge] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Form State
@@ -38,18 +43,13 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
   const [inspectionIncharge, setInspectionIncharge] = useState('');
 
   const kilnSizeOptions = [...new Set([
-    '80 TPD',
-    '100 TPD',
-    '120 TPD',
-    '150 TPD',
-    '250 TPD',
-    '350 TPD',
-    ...(data.kilns || []).map((k) => k.size).filter(Boolean)
+    ...(data?.kilnSizes && data.kilnSizes.length > 0 ? data.kilnSizes : ['80 TPD', '100 TPD', '120 TPD', '150 TPD']),
+    ...(data?.kilns || []).map((k) => k.size).filter(Boolean)
   ])];
 
   // Compute next CN number preview
   const existingNums = (data.orders || [])
-    .map((o) => parseInt(o.serviceOrderNo.replace(/\D/g, ''), 10))
+    .map((o) => parseInt(String(o?.serviceOrderNo || '').replace(/\D/g, ''), 10))
     .filter(Boolean);
   const maxNum = existingNums.length ? Math.max(...existingNums) : 0;
   const nextOrderNo = `CN-${String(maxNum + 1).padStart(2, '0')}`;
@@ -202,15 +202,14 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
         status: 'pending'
       });
 
-      // 1. Sync to Google Sheet first so it writes to the cloud spreadsheet
+      // 1. Sync to Google Sheet first so it writes to the cloud spreadsheet (NEVER touch Planned or Delay cols!)
       await syncStepToGoogleSheet(1, nextOrderNo, {
         companyName,
         campaignStartDate: startDate,
         campaignNo: campaignNo.trim(),
         kilnSize: kilnSize.trim(),
         kilnNo: parseInt(kilnNo, 10) || 1,
-        inspectionIncharge: inspectionIncharge.trim(),
-        plannedRunningDate: plannedRunning
+        inspectionIncharge: inspectionIncharge.trim()
       });
 
       // 2. Save state and refresh view
@@ -262,8 +261,16 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
 
   const handleOpenEdit = (v) => {
     setEditingVisit(v);
+    const co = (data.companies || []).find(
+      (c) => c.id === v.companyId || (c.name && v.companyName && c.name.toLowerCase() === v.companyName.toLowerCase())
+    );
+    setEditCompanyId(co?.id || v.companyId || '');
+    setEditWhat(v.what || 'First Campaign In FMS');
+    setEditStartDate(v.campaignStartDate || v.date || todayISO());
+    setEditCampaignNo(v.campaignNo ? String(v.campaignNo) : '1');
+    setEditKilnSize(v.kilnSize || '80 TPD');
+    setEditKilnNo(v.kilnNo ? String(v.kilnNo) : '1');
     setEditIncharge(v.inspectionIncharge || v.visitedBy || '');
-    setEditCampaignNo(v.campaignNo || '1');
   };
 
   const handleSaveEdit = async (e) => {
@@ -271,25 +278,47 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
     if (!editingVisit) return;
     setIsSavingEdit(true);
     try {
+      const co = (data.companies || []).find((c) => c.id === editCompanyId);
+      const companyName = co?.name || editingVisit.companyName;
+
       const nextData = { ...data };
       const v = (nextData.visits || []).find((x) => x.serviceOrderNo === editingVisit.serviceOrderNo);
       if (v) {
-        v.inspectionIncharge = editIncharge.trim();
+        v.companyId = editCompanyId;
+        v.companyName = companyName;
+        v.what = editWhat;
+        v.campaignStartDate = editStartDate;
         v.campaignNo = editCampaignNo.trim();
+        v.kilnSize = editKilnSize.trim();
+        v.kilnNo = parseInt(editKilnNo, 10) || 1;
+        v.inspectionIncharge = editIncharge.trim();
       }
       const o = (nextData.orders || []).find((x) => x.serviceOrderNo === editingVisit.serviceOrderNo);
       if (o) {
-        o.inspectionIncharge = editIncharge.trim();
+        o.companyId = editCompanyId;
+        o.companyName = companyName;
+        o.campaignStartDate = editStartDate;
         o.campaignNo = editCampaignNo.trim();
+        o.kilnSize = editKilnSize.trim();
+        o.kilnNo = parseInt(editKilnNo, 10) || 1;
+        o.inspectionIncharge = editIncharge.trim();
       }
 
-      // Sync specific edited record to Google Sheet immediately
+      // Update pending running task plannedDate if start date changed
+      const task = (nextData.stepTasks || []).find(
+        (t) => t.serviceOrderNo === editingVisit.serviceOrderNo && t.step === 'running'
+      );
+      if (task && task.status === 'pending') {
+        task.plannedDate = editStartDate;
+      }
+
+      // Sync specific edited record to Google Sheet immediately (NEVER touching Planned or Delay cols!)
       await syncStepToGoogleSheet(1, editingVisit.serviceOrderNo, {
-        companyName: v?.companyName || editingVisit.companyName,
-        campaignStartDate: v?.campaignStartDate || editingVisit.campaignStartDate,
+        companyName: companyName,
+        campaignStartDate: editStartDate,
         campaignNo: editCampaignNo.trim(),
-        kilnSize: v?.kilnSize || editingVisit.kilnSize,
-        kilnNo: v?.kilnNo || editingVisit.kilnNo,
+        kilnSize: editKilnSize.trim(),
+        kilnNo: parseInt(editKilnNo, 10) || 1,
         inspectionIncharge: editIncharge.trim()
       });
 
@@ -301,6 +330,33 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
       notify('Failed to save edit: ' + err.message, 'bad');
     } finally {
       setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteVisit = async (visit) => {
+    const orderNo = visit.serviceOrderNo;
+    if (!window.confirm(`Are you sure you want to delete Company Visit (${orderNo})? This will permanently delete the order from the app and Google Sheet.`)) {
+      return;
+    }
+
+    try {
+      // 1. Send delete request to Google Sheet
+      deleteOrderFromGoogleSheet(orderNo);
+
+      // 2. Remove order from local application state
+      const nextData = { ...data };
+      nextData.orders = (nextData.orders || []).filter((o) => o.serviceOrderNo !== orderNo);
+      nextData.visits = (nextData.visits || []).filter((v) => v.serviceOrderNo !== orderNo);
+      nextData.runningInspections = (nextData.runningInspections || []).filter((r) => r.serviceOrderNo !== orderNo);
+      nextData.shutdownInspections = (nextData.shutdownInspections || []).filter((s) => s.serviceOrderNo !== orderNo);
+      nextData.callLogs = (nextData.callLogs || []).filter((c) => c.serviceOrderNo !== orderNo);
+      nextData.stepTasks = (nextData.stepTasks || []).filter((t) => t.serviceOrderNo !== orderNo);
+
+      await saveData(nextData);
+      await refresh();
+      notify(`Order ${orderNo} deleted successfully from App and Sheet!`, 'good');
+    } catch (err) {
+      notify('Failed to delete order: ' + err.message, 'bad');
     }
   };
 
@@ -467,6 +523,22 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
                             </svg>
                             Edit
                           </button>
+                          <button
+                            type="button"
+                            className="btn small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteVisit(v);
+                            }}
+                            title={`Delete ${v.serviceOrderNo}`}
+                            style={{ padding: '3px 8px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--error, #C93838)', borderColor: 'var(--error-border, #FAD1D1)' }}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                            Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -522,9 +594,9 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
                   placeholder="Select Company"
                 >
                   <option value="">Select Company</option>
-                  {(data.companies || []).map((c) => (
+                  {(data?.companies || []).map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({c.kycNo || 'KYC'})
+                      {c.name}{c.kycNo ? ` (${c.kycNo})` : ''}
                     </option>
                   ))}
                 </CustomSelect>
@@ -619,10 +691,6 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
                 />
               </div>
 
-              <div style={{ background: 'var(--primary-soft)', padding: '12px', borderRadius: '8px', marginTop: '14px', fontSize: '12.5px', color: 'var(--text)' }}>
-                ℹ Submitting will save this Company Visit directly into the table below and schedule Running Kiln Inspection for the <b>Campaign Start Date</b> ({formatDate(startDate)}).
-              </div>
-
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' }}>
                 <button type="button" className="btn" onClick={() => setShowModal(false)}>
                   Cancel
@@ -651,58 +719,115 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
 
             <form onSubmit={handleSaveEdit}>
               <div className="field">
-                <label>Name Of The Company (Read-only)</label>
+                <label>Service Order No.</label>
                 <input
                   type="text"
                   readOnly
                   disabled
-                  value={editingVisit.companyName || 'Plant'}
-                  className="input-text"
-                  style={{ background: 'var(--surface-subtle)', cursor: 'not-allowed' }}
+                  value={editingVisit.serviceOrderNo}
+                  className="input-text mono"
+                  style={{ background: 'var(--surface-subtle)', fontWeight: 700, color: 'var(--primary)' }}
                 />
               </div>
 
-              <div className="two-col">
+              <div className="field">
+                <label>Name Of The Company *</label>
+                <CustomSelect
+                  required
+                  value={editCompanyId}
+                  onChange={(e) => setEditCompanyId(e.target.value)}
+                  className="select-input"
+                  placeholder="Select Company"
+                >
+                  <option value="">Select Company</option>
+                  {(data?.companies || []).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}{c.kycNo ? ` (${c.kycNo})` : ''}
+                    </option>
+                  ))}
+                </CustomSelect>
+              </div>
+
+              <div className="field">
+                <label>What *</label>
+                <CustomSelect
+                  value={editWhat}
+                  onChange={(e) => setEditWhat(e.target.value)}
+                  className="select-input"
+                >
+                  <option value="First Campaign In FMS">First Campaign In FMS</option>
+                  <option value="Restarting The Process">Restarting The Process</option>
+                </CustomSelect>
+              </div>
+
+              <div className="fieldrow">
                 <div className="field">
-                  <label>Campaign No. *</label>
+                  <label>Date Of Campaign Starting *</label>
                   <input
-                    type="text"
                     required
-                    value={editCampaignNo}
-                    onChange={(e) => setEditCampaignNo(e.target.value)}
+                    type="date"
+                    value={editStartDate}
+                    onChange={(e) => setEditStartDate(e.target.value)}
                     className="input-text"
                   />
                 </div>
                 <div className="field">
-                  <label>Kiln No. & Size</label>
+                  <label>Campaign No. *</label>
                   <input
-                    type="text"
-                    readOnly
-                    disabled
-                    value={`Kiln ${editingVisit.kilnNo} (${editingVisit.kilnSize})`}
+                    required
+                    value={editCampaignNo}
+                    onChange={(e) => setEditCampaignNo(e.target.value)}
+                    placeholder="e.g. 1"
                     className="input-text"
-                    style={{ background: 'var(--surface-subtle)', cursor: 'not-allowed' }}
+                  />
+                </div>
+              </div>
+
+              <div className="fieldrow">
+                <div className="field">
+                  <label>Size Of Kiln *</label>
+                  <CustomSelect
+                    required
+                    value={editKilnSize}
+                    onChange={(e) => setEditKilnSize(e.target.value)}
+                    className="select-input"
+                    placeholder="Select Kiln Size"
+                  >
+                    <option value="">Select Kiln Size</option>
+                    {kilnSizeOptions.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </CustomSelect>
+                </div>
+                <div className="field">
+                  <label>Kiln No. *</label>
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    max="6"
+                    value={editKilnNo}
+                    onChange={(e) => setEditKilnNo(e.target.value)}
+                    placeholder="e.g. 1"
+                    className="input-text"
                   />
                 </div>
               </div>
 
               <div className="field">
-                <label>Name of Inspection Incharge *</label>
+                <label>Name Of Inspection Incharge *</label>
                 <input
-                  type="text"
                   required
                   value={editIncharge}
                   onChange={(e) => setEditIncharge(e.target.value)}
-                  placeholder="Enter incharge name"
+                  placeholder="Enter inspection incharge name"
                   className="input-text"
                 />
               </div>
 
-              <div style={{ background: 'var(--surface-subtle)', padding: '10px 12px', borderRadius: '8px', marginTop: '10px', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                ℹ Changes are saved and synchronized in real time.
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' }}>
                 <button type="button" className="btn" onClick={() => setEditingVisit(null)}>
                   Cancel
                 </button>

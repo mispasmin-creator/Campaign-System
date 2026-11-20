@@ -1,5 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getData, saveData, resetDemo, exportData, importData } from '../services/storage';
+import { saveData, resetDemo, exportData, importData } from '../services/storage';
+
+const EMPTY_SHEET_DATA = {
+  companies: [],
+  kilns: [],
+  kilnSizes: [],
+  orders: [],
+  visits: [],
+  runningInspections: [],
+  callLogs: [],
+  shutdownInspections: [],
+  restartProcesses: [],
+  stepTasks: [],
+  historicalCampaigns: [],
+  settings: { offsets: { running: 7, call: -3, shutdown: 0, restart: 2 } },
+  isSyncedFromSheet: true
+};
 import { loadDataFromGoogleSheet } from '../services/googleSheets';
 
 export function useData() {
@@ -32,24 +48,62 @@ export function useData() {
         return sheetData;
       }
 
-      // Offline / fallback to local storage cache if sheet was unreachable
-      const cached = await getData();
-      setData(cached);
-      return cached;
+      // Google Sheet is the only data source. Never resurrect local records.
+      setData(EMPTY_SHEET_DATA);
+      return EMPTY_SHEET_DATA;
     } catch (err) {
-      console.warn('Google Sheet sync error, using local cache:', err.message);
-      const cached = await getData();
-      setData(cached);
+      console.warn('Google Sheet sync error:', err.message);
+      setData(EMPTY_SHEET_DATA);
       setError(err.message || 'Failed to load data');
-      return cached;
+      return EMPTY_SHEET_DATA;
     } finally {
       setLoading(false);
     }
   }, [notify]);
 
+  // Background silent sync: fetches from Google Sheet without showing loading skeleton
+  const silentSync = useCallback(async () => {
+    try {
+      const sheetData = await loadDataFromGoogleSheet();
+      if (sheetData) {
+        setData(sheetData);
+      } else {
+        setData(EMPTY_SHEET_DATA);
+      }
+    } catch (err) {
+      console.warn('Background sync error:', err.message);
+      setData(EMPTY_SHEET_DATA);
+    }
+  }, []);
+
   useEffect(() => {
     refresh();
-  }, [refresh]);
+
+    // 1. Periodic background sync every 15 seconds
+    const interval = setInterval(() => {
+      silentSync();
+    }, 15000);
+
+    // 2. Real-time sync whenever user returns to the app tab/window
+    const handleFocus = () => {
+      silentSync();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        silentSync();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refresh, silentSync]);
 
   const updateData = useCallback(async (updaterOrNewData) => {
     try {

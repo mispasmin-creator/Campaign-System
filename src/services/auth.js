@@ -5,6 +5,11 @@
 
 const AUTH_USER_KEY = 'campaign_fms_current_user';
 
+export function normalizeUserRole(role) {
+  const value = String(role || '').trim().toLowerCase();
+  return value === 'admin' || value === 'administrator' ? 'Admin' : 'User';
+}
+
 export const APP_PAGES = [
   {
     id: 'dashboard',
@@ -78,7 +83,7 @@ export const DEFAULT_USERS = [
     userId: 'sanjay',
     name: 'Sanjay Singh',
     password: '123',
-    role: 'Inspector',
+    role: 'User',
     status: 'Active',
     access: 'dashboard, running, take-shutdown-date, shutdown-inspection',
     lastLogin: ''
@@ -87,7 +92,7 @@ export const DEFAULT_USERS = [
     userId: 'ahitesh',
     name: 'Ahitesh',
     password: '123',
-    role: 'Sales Co-ordinator',
+    role: 'User',
     status: 'Active',
     access: 'dashboard, visit, take-shutdown-date, restart-process, masters',
     lastLogin: ''
@@ -127,7 +132,7 @@ export function hasPageAccess(user, pageIdOrPath) {
     }
   }
 
-  const targetId = page ? page.id : String(pageIdOrPath).replace(/^\//, '').toLowerCase();
+  const targetId = page ? page.id : String(pageIdOrPath || '').replace(/^\//, '').toLowerCase();
 
   // If user has specific comma-separated access permissions
   if (rawAccess) {
@@ -202,7 +207,9 @@ export function formatAccessString(accessArrayOrString) {
 export function getCurrentUser() {
   try {
     const raw = localStorage.getItem(AUTH_USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const user = JSON.parse(raw);
+    return { ...user, role: normalizeUserRole(user.role) };
   } catch (err) {
     console.warn('[Auth] Failed to parse current user session:', err);
     return null;
@@ -221,6 +228,7 @@ export function setCurrentUser(user) {
     }
     const sessionUser = {
       ...user,
+      role: normalizeUserRole(user.role),
       sessionStarted: new Date().toISOString()
     };
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(sessionUser));

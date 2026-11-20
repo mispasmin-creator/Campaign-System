@@ -9,7 +9,8 @@ import {
   DEFAULT_USERS,
   getCurrentUser,
   hasPageAccess,
-  formatAccessString
+  formatAccessString,
+  normalizeUserRole
 } from '../services/auth';
 import DetailModal from '../components/DetailModal';
 
@@ -25,7 +26,7 @@ export default function UserAccessPage({ notify }) {
   // Edit User Modal
   const [editingUser, setEditingUser] = useState(null);
   const [editName, setEditName] = useState('');
-  const [editRole, setEditRole] = useState('Inspector');
+  const [editRole, setEditRole] = useState('User');
   const [editPassword, setEditPassword] = useState('');
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [editStatus, setEditStatus] = useState('Active');
@@ -37,7 +38,7 @@ export default function UserAccessPage({ notify }) {
   const [newUserId, setNewUserId] = useState('');
   const [newName, setNewName] = useState('');
   const [newPassword, setNewPassword] = useState('123');
-  const [newRole, setNewRole] = useState('Inspector');
+  const [newRole, setNewRole] = useState('User');
   const [newStatus, setNewStatus] = useState('Active');
   const [newPageAccess, setNewPageAccess] = useState([
     'dashboard',
@@ -53,7 +54,7 @@ export default function UserAccessPage({ notify }) {
     try {
       const liveUsers = await fetchUsersFromGoogleSheet();
       if (Array.isArray(liveUsers) && liveUsers.length > 0) {
-        setUsersList(liveUsers);
+        setUsersList(liveUsers.map((user) => ({ ...user, role: normalizeUserRole(user.role) })));
       } else {
         setUsersList(DEFAULT_USERS);
       }
@@ -73,7 +74,7 @@ export default function UserAccessPage({ notify }) {
   const handleOpenEditAccess = (u) => {
     setEditingUser(u);
     setEditName(u.name || '');
-    setEditRole(u.role || 'Inspector');
+    setEditRole(normalizeUserRole(u.role));
     setEditPassword(u.password || '');
     setShowEditPassword(false);
     setEditStatus(u.status || 'Active');
@@ -114,7 +115,7 @@ export default function UserAccessPage({ notify }) {
     const updatedUser = {
       userId: editingUser.userId,
       name: editName.trim(),
-      role: editRole.trim(),
+      role: normalizeUserRole(editRole),
       password: editPassword.trim(),
       status: editStatus,
       access: accessStr
@@ -180,7 +181,7 @@ export default function UserAccessPage({ notify }) {
       userId: newUserId.trim().toLowerCase(),
       name: newName.trim(),
       password: newPassword.trim(),
-      role: newRole.trim(),
+      role: normalizeUserRole(newRole),
       status: newStatus,
       access: accessStr
     };
@@ -211,7 +212,7 @@ export default function UserAccessPage({ notify }) {
     return (
       (u.name && u.name.toLowerCase().includes(q)) ||
       (u.userId && u.userId.toLowerCase().includes(q)) ||
-      (u.role && u.role.toLowerCase().includes(q))
+      normalizeUserRole(u.role).toLowerCase().includes(q)
     );
   });
 
@@ -383,21 +384,13 @@ export default function UserAccessPage({ notify }) {
                             borderRadius: '6px',
                             fontSize: '0.72rem',
                             fontWeight: 700,
-                            background:
-                              u.role?.toLowerCase() === 'admin'
-                                ? 'rgba(239, 68, 68, 0.15)'
-                                : u.role?.toLowerCase().includes('coordinator')
-                                ? 'rgba(245, 158, 11, 0.15)'
-                                : 'rgba(56, 189, 248, 0.15)',
-                            color:
-                              u.role?.toLowerCase() === 'admin'
-                                ? '#ef4444'
-                                : u.role?.toLowerCase().includes('coordinator')
-                                ? '#f59e0b'
-                                : '#38bdf8'
+                            background: normalizeUserRole(u.role) === 'Admin'
+                              ? 'rgba(239, 68, 68, 0.15)'
+                              : 'rgba(56, 189, 248, 0.15)',
+                            color: normalizeUserRole(u.role) === 'Admin' ? '#ef4444' : '#38bdf8'
                           }}
                         >
-                          {u.role || 'Inspector'}
+                          {normalizeUserRole(u.role)}
                         </span>
                       </td>
 
@@ -614,8 +607,7 @@ export default function UserAccessPage({ notify }) {
                   style={{ width: '100%', fontSize: '0.85rem' }}
                 >
                   <option value="Admin">Admin</option>
-                  <option value="Inspector">Inspector</option>
-                  <option value="Sales Co-ordinator">Sales Co-ordinator</option>
+                  <option value="User">User</option>
                 </select>
               </div>
 
@@ -713,7 +705,7 @@ export default function UserAccessPage({ notify }) {
                     <circle cx="11" cy="11" r="8" />
                     <path d="m21 21-4.35-4.35" />
                   </svg>
-                  Inspector Preset
+                  Inspection Access
                 </button>
                 <button
                   type="button"
@@ -732,7 +724,7 @@ export default function UserAccessPage({ notify }) {
                     <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
                     <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
                   </svg>
-                  Coordinator Preset
+                  Coordinator Access
                 </button>
                 <button
                   type="button"
@@ -919,9 +911,7 @@ export default function UserAccessPage({ notify }) {
                     className="select-input"
                     style={{ width: '100%', fontSize: '0.85rem' }}
                   >
-                    <option value="Inspector">Inspector</option>
-                    <option value="Sales Co-ordinator">Sales Co-ordinator</option>
-                    <option value="Coordinator">Coordinator</option>
+                    <option value="User">User</option>
                     <option value="Admin">Admin</option>
                   </select>
                 </div>
@@ -988,18 +978,14 @@ export default function UserAccessPage({ notify }) {
           onClose={() => setViewingUser(null)}
           title="User Profile & Access"
           subtitle={`User ID: ${viewingUser.userId}`}
-          badge={viewingUser.role || 'Inspector'}
+          badge={normalizeUserRole(viewingUser.role)}
           badgeTone={
-            viewingUser.role?.toLowerCase() === 'admin'
-              ? 'bad'
-              : viewingUser.role?.toLowerCase().includes('coordinator')
-              ? 'warn'
-              : 'info'
+            normalizeUserRole(viewingUser.role) === 'Admin' ? 'bad' : 'info'
           }
           items={[
             { label: 'Full Name', value: viewingUser.name, fullWidth: true },
             { label: 'User ID / Username', value: viewingUser.userId, mono: true },
-            { label: 'Account Role', value: viewingUser.role || 'Inspector' },
+            { label: 'Account Role', value: normalizeUserRole(viewingUser.role) },
             {
               label: 'Account Status',
               value: viewingUser.status || 'Active'

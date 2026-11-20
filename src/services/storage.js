@@ -32,10 +32,12 @@ export const SEED_KILNS = [
 export const EMPTY_DATABASE = {
   companies: [...SEED_COMPANIES],
   kilns: [...SEED_KILNS],
+  kilnSizes: ['80 TPD', '100 TPD', '120 TPD', '150 TPD'],
   orders: [],
   visits: [],
   runningInspections: [],
   shutdownInspections: [],
+  restartProcesses: [],
   callLogs: [],
   stepTasks: [],
   historicalCampaigns: [],
@@ -413,6 +415,7 @@ function generateSeedData() {
   return {
     companies: SEED_COMPANIES,
     kilns: SEED_KILNS,
+    kilnSizes: ['80 TPD', '100 TPD', '120 TPD', '150 TPD'],
     orders,
     stepTasks,
     visits,
@@ -432,17 +435,12 @@ function generateSeedData() {
 }
 
 /**
- * Loads database from localStorage.
- * If empty, returns clean empty structure without dummy orders.
+ * Returns an empty local structure. Live records come from Google Sheet.
  */
 export async function getData() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(EMPTY_DATABASE));
-      return { ...EMPTY_DATABASE };
-    }
-    const parsed = JSON.parse(raw);
+    // Application records are owned by Google Sheet, not browser storage.
+    const parsed = JSON.parse(JSON.stringify(EMPTY_DATABASE));
     
     // Ensure all collections and fields exist cleanly
     if (!Array.isArray(parsed.companies) || parsed.companies.length === 0) {
@@ -453,10 +451,10 @@ export async function getData() {
         return {
           id: c.id,
           name: c.name,
-          kycNo: c.kycNo || seedMatch?.kycNo || 'KYC-001',
+          kycNo: c.kycNo !== undefined ? c.kycNo : (seedMatch?.kycNo || ''),
           gstNo: c.gstNo || seedMatch?.gstNo || '',
-          siteIncharge: c.siteIncharge || seedMatch?.siteIncharge || 'Site Incharge',
-          mobile: c.mobile || seedMatch?.mobile || '9876543210',
+          siteIncharge: c.siteIncharge || seedMatch?.siteIncharge || '',
+          mobile: c.mobile || seedMatch?.mobile || '',
           registeredAddress: c.registeredAddress || seedMatch?.registeredAddress || ''
         };
       });
@@ -464,6 +462,10 @@ export async function getData() {
 
     if (!Array.isArray(parsed.kilns) || parsed.kilns.length === 0) {
       parsed.kilns = [...SEED_KILNS];
+    }
+
+    if (!Array.isArray(parsed.kilnSizes) || parsed.kilnSizes.length === 0) {
+      parsed.kilnSizes = ['80 TPD', '100 TPD', '120 TPD', '150 TPD'];
     }
 
     // If local storage still holds legacy mock seed data (never synced from Google Sheet), wipe out fake mock orders
@@ -514,27 +516,17 @@ export async function getData() {
     }
     return parsed;
   } catch (err) {
-    console.error('Failed to parse local storage, resetting to clean empty database', err);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(EMPTY_DATABASE));
+    console.error('Failed to create empty database structure', err);
     return { ...EMPTY_DATABASE };
   }
 }
 
 /**
- * Saves entire database to localStorage.
- * Handles storage quota full errors cleanly.
+ * Local persistence is disabled; Google Sheet is the source of truth.
  */
 export async function saveData(data) {
-  try {
-    const serialized = JSON.stringify(data);
-    localStorage.setItem(STORAGE_KEY, serialized);
-    return data;
-  } catch (err) {
-    if (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014) {
-      throw new Error('Browser storage full. Please export a JSON backup and delete old inspection photos.');
-    }
-    throw new Error('Failed to save data: ' + (err.message || 'Unknown error'));
-  }
+  // Mutations must be synced to Google Sheet by the caller first.
+  return data;
 }
 
 /**

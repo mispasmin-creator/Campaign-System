@@ -633,13 +633,12 @@ export default function Masters({ data, refresh, notify }) {
                     placeholder="Select Kiln Size"
                   >
                     <option value="">Select Kiln Size</option>
-                    <option value="80 TPD">80 TPD</option>
-                    <option value="100 TPD">100 TPD</option>
-                    <option value="120 TPD">120 TPD</option>
-                    <option value="150 TPD">150 TPD</option>
-                    <option value="250 TPD">250 TPD</option>
-                    <option value="350 TPD">350 TPD</option>
-                    <option value="500 TPD">500 TPD</option>
+                    {[...new Set([
+                      ...(data?.kilnSizes && data.kilnSizes.length > 0 ? data.kilnSizes : ['80 TPD', '100 TPD', '120 TPD', '150 TPD']),
+                      '80 TPD', '100 TPD', '120 TPD', '150 TPD', '250 TPD', '350 TPD', '500 TPD'
+                    ])].map((sz) => (
+                      <option key={sz} value={sz}>{sz}</option>
+                    ))}
                   </CustomSelect>
                 </div>
               </div>

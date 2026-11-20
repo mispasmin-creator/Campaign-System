@@ -1,6 +1,6 @@
 import React, { useEffect, useState, Component } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
 import './style.css';
 import AppLayout from './components/AppLayout';
@@ -79,6 +79,10 @@ function ProtectedRoute({ pageId, currentUser, children }) {
   const allowed = hasPageAccess(currentUser, pageId);
   if (!allowed) {
     const firstAllowed = getFirstAllowedPath(currentUser);
+    // If user is on an unauthorized route (like /access), automatically redirect to their first allowed module!
+    if (firstAllowed && firstAllowed !== window.location.pathname) {
+      return <Navigate to={firstAllowed} replace />;
+    }
     return (
       <div
         style={{
@@ -131,6 +135,8 @@ function ProtectedRoute({ pageId, currentUser, children }) {
 }
 
 function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { data, loading, error, toast, notify, refresh } = useData();
   const [currentUser, setCurrentUser] = useState(getCurrentUser());
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -160,6 +166,16 @@ function App() {
   const handleLoginSuccess = (user) => {
     setIsLoggingIn(true);
     setCurrentUser(user);
+
+    // Determine target landing path: If user was on an unauthorized route (like /access), redirect to allowed page
+    const currentPath = window.location.pathname;
+    const isAllowedCurrent = hasPageAccess(user, currentPath) && currentPath !== '/' && currentPath !== '/access' && currentPath !== '/settings';
+    const targetLanding = isAllowedCurrent
+      ? currentPath
+      : (hasPageAccess(user, 'dashboard') ? '/dashboard' : getFirstAllowedPath(user));
+
+    navigate(targetLanding, { replace: true });
+
     setTimeout(() => {
       setIsLoggingIn(false);
     }, 750);
@@ -209,7 +225,10 @@ function App() {
       theme={theme}
       toggleTheme={toggleTheme}
       onSync={() => refresh(true)}
-      onLogout={() => setCurrentUser(null)}
+      onLogout={() => {
+        setCurrentUser(null);
+        navigate('/', { replace: true });
+      }}
     >
       <Routes>
         <Route path="/" element={<Navigate to={initialLanding} replace />} />

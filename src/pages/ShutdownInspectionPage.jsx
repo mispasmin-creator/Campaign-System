@@ -29,6 +29,8 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
   const [editingShutdown, setEditingShutdown] = useState(null);
   const [editInspector, setEditInspector] = useState('');
   const [editAvgThickness, setEditAvgThickness] = useState('');
+  const [editInspectionDate, setEditInspectionDate] = useState('');
+  const [editNextCampaignDate, setEditNextCampaignDate] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Form State
@@ -262,12 +264,16 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
         });
       }
 
-      // Dynamic Google Sheets sync first
+      // Dynamic Google Sheets sync first (never touch Planned or Delay cols)
       await syncStepToGoogleSheet(4, selectedOrderNo, {
+        companyName,
+        what,
+        inspectionDate: newRecord.inspectionDate,
         avgThickness: liveAvgDistance,
         inspector: inspector.trim(),
-        nextCampaignStartDate: campaignStartingDate,
-        plannedRestartDate: restartPlanned
+        zoneThickness: newRecord.zoneThickness,
+        zonePhotos: newRecord.zonePhotos,
+        nextCampaignStartDate: campaignStartingDate
       });
 
       await saveData(nextData);
@@ -331,6 +337,8 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
     setEditingShutdown(row);
     setEditInspector(row.inspector || '');
     setEditAvgThickness(row.avgThickness || '');
+    setEditInspectionDate(row.inspectionDate || todayISO());
+    setEditNextCampaignDate(row.nextCampaignStartDate || '');
   };
 
   const handleSaveEdit = async (e) => {
@@ -343,13 +351,20 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
       if (s) {
         s.inspector = editInspector.trim();
         s.avgThickness = editAvgThickness.trim();
+        s.inspectionDate = editInspectionDate;
+        s.nextCampaignStartDate = editNextCampaignDate;
       }
 
-      // Sync specific edited record to Google Sheet immediately
+      // Sync specific edited record to Google Sheet immediately (Protected: NEVER send Planned or Delay!)
       await syncStepToGoogleSheet(4, editingShutdown.serviceOrderNo, {
+        companyName: editingShutdown.companyName || '',
+        what: editingShutdown.what || 'Done',
+        inspectionDate: editInspectionDate,
         avgThickness: editAvgThickness.trim(),
         inspector: editInspector.trim(),
-        nextCampaignStartDate: s?.nextCampaignStartDate || editingShutdown.nextCampaignStartDate
+        zoneThickness: editingShutdown.zoneThickness || editingShutdown.zoneDistances || [],
+        zonePhotos: editingShutdown.zonePhotos || [],
+        nextCampaignStartDate: editNextCampaignDate
       });
 
       await saveData(nextData);
@@ -468,6 +483,7 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
                   <th>Name Of The Company</th>
                   <th>Kiln</th>
                   <th>Campaign</th>
+                  <th>Inspection Incharge</th>
                   <th>Confirmed Shutdown Date</th>
                   <th>Planned Inspection</th>
                   <th>Status</th>
@@ -477,7 +493,7 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
               <tbody>
                 {paginatedPending.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-secondary)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-secondary)' }}>
                       No pending shutdown inspections found. Orders with "Yes Shutdown date taken" will appear here automatically.
                     </td>
                   </tr>
@@ -499,6 +515,7 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
                         <span className="pill">Kiln {row.kilnNo} ({row.kilnSize})</span>
                       </td>
                       <td>Camp. {row.campaignNo}</td>
+                      <td>{row.inspectionIncharge || '—'}</td>
                       <td style={{ fontWeight: 600, color: 'var(--primary)' }}>
                         {formatDate(row.confirmedShutdownDate)}
                       </td>
@@ -1055,20 +1072,38 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
                 />
               </div>
 
-              <div className="field">
-                <label>Avg Distance Between Refractory (mm) *</label>
-                <input
-                  type="number"
-                  required
-                  value={editAvgThickness}
-                  onChange={(e) => setEditAvgThickness(e.target.value)}
-                  placeholder="e.g. 175"
-                  className="input-text"
-                />
+              <div className="fieldrow">
+                <div className="field">
+                  <label>Inspection Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editInspectionDate}
+                    onChange={(e) => setEditInspectionDate(e.target.value)}
+                    className="input-text"
+                  />
+                </div>
+                <div className="field">
+                  <label>Avg Distance Between Refractory (mm) *</label>
+                  <input
+                    type="number"
+                    required
+                    value={editAvgThickness}
+                    onChange={(e) => setEditAvgThickness(e.target.value)}
+                    placeholder="e.g. 175"
+                    className="input-text"
+                  />
+                </div>
               </div>
 
-              <div style={{ background: 'var(--surface-subtle)', padding: '10px 12px', borderRadius: '8px', marginTop: '10px', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                ℹ Changes are saved and synchronized in real time.
+              <div className="field">
+                <label>Next Campaign Starting Date</label>
+                <input
+                  type="date"
+                  value={editNextCampaignDate}
+                  onChange={(e) => setEditNextCampaignDate(e.target.value)}
+                  className="input-text"
+                />
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>

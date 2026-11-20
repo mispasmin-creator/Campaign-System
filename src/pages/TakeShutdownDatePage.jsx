@@ -37,23 +37,29 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
   const [nextCallDate, setNextCallDate] = useState('');
 
   const today = todayISO();
-  const cleanCallStatus = (status = '') => status.replace(/^\d+\.\s*/, '');
+  const cleanCallStatus = (status = '') => String(status || '').replace(/^\d+\.\s*/, '');
+  const isDateValue = (value) => /^(?:\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/.test(String(value || '').trim());
 
   const formatCallLogNo = (serviceOrderNo, rawCallLogNo, fallbackNo = 1) => {
     const match = String(rawCallLogNo || '').match(/Call\s*-\s*(\d+)/i);
     const sequence = match ? Number(match[1]) : fallbackNo;
-    return `${String(serviceOrderNo).replace(/-/g, '')} Call-${String(sequence).padStart(2, '0')}`;
+    const cleanOrder = String(serviceOrderNo || '').trim().replace(/\s+/g, '').replace(/^CN-0*(\d+)/i, 'CN$1');
+    return `${cleanOrder}Call-${String(sequence).padStart(2, '0')}`;
   };
 
   const getNextCallLogNo = (logs, serviceOrderNo) => {
-    const matchingLogs = (logs || []).filter((log) => log.serviceOrderNo === serviceOrderNo);
+    const cleanTarget = String(serviceOrderNo || '').trim().toUpperCase();
+    const matchingLogs = (logs || []).filter(
+      (log) => String(log.serviceOrderNo || '').trim().toUpperCase() === cleanTarget
+    );
     const maxNo = matchingLogs
       .map((log) => {
         const match = String(log.callLogNo || '').match(/Call\s*-\s*(\d+)/i);
         return match ? Number(match[1]) : 0;
       })
-      .reduce((max, value) => Math.max(max, value), matchingLogs.length);
-    return formatCallLogNo(serviceOrderNo, `Call-${maxNo + 1}`);
+      .reduce((max, value) => Math.max(max, value), 0);
+    const nextSeq = Math.max(maxNo, matchingLogs.length) + 1;
+    return formatCallLogNo(serviceOrderNo, `Call-${nextSeq}`);
   };
 
   // Pre-select order if query param present
@@ -68,13 +74,22 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
     }
   }, [searchParams]);
 
-  // 1. Pending List: completed Running Inspection history records that still
+  // 1. Pending List: completed Running Inspection records that still
   // have a pending Step 3 call task.
   const pendingCallTasks = (data.stepTasks || []).filter(
-    (t) =>
-      t.step === 'call' &&
-      t.status === 'pending' &&
-      (data.runningInspections || []).some((inspection) => inspection.serviceOrderNo === t.serviceOrderNo)
+    (t) => {
+      const latestCall = (data.callLogs || []).find((log) => log.serviceOrderNo === t.serviceOrderNo);
+      const latestOutcome = String(latestCall?.shutdownDateGiven || '').toLowerCase();
+      const isForgotten = latestOutcome.includes('forget');
+
+      return (
+        t.step === 'call' &&
+        t.status === 'pending' &&
+        !isForgotten &&
+        ((data.runningInspections || []).some((r) => r.serviceOrderNo === t.serviceOrderNo) ||
+         (data.stepTasks || []).some((st) => st.serviceOrderNo === t.serviceOrderNo && st.step === 'running' && st.status === 'done'))
+      );
+    }
   );
 
   const pendingList = pendingCallTasks.map((task) => {
@@ -85,7 +100,7 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
     const running = (data.runningInspections || []).find((r) => r.serviceOrderNo === task.serviceOrderNo);
     const companyName = company?.name || visit?.companyName || 'Unknown Plant';
 
-    // Find last call log if any
+    // Find all call logs for this order
     const calls = (data.callLogs || []).filter((c) => c.serviceOrderNo === task.serviceOrderNo);
     // New call logs are added with unshift, so the first item is the latest call.
     const lastCall = calls[0];
@@ -103,15 +118,15 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
       kilnSize: kiln ? kiln.size : visit ? visit.kilnSize : '100 TPD',
       campaignNo: running?.campaignNo || order?.campaignNo || visit?.campaignNo || '1',
       campaignStartDate: order ? order.campaignStartDate : visit ? visit.campaignStartDate : '—',
-      expectedShutdownDate: order?.expectedShutdownDate || running?.expectedShutdownDate || '—',
+      expectedShutdownDate: (order?.callFollowupStatus?.includes('Yes') ? order?.expectedShutdownDate : null) || running?.expectedShutdownDate || '—',
       plannedCallDate: lastCall?.nextCallDate || running?.expectedShutdownDate || task.plannedDate,
-      callLogNo: formatCallLogNo(task.serviceOrderNo, lastCall?.callLogNo, calls.length || 1),
-      nextCallDate: lastCall?.nextCallDate || '',
-      callFollowupStatus: order?.callFollowupStatus || 'Pending Call',
+      callLogNo: getNextCallLogNo(data.callLogs, task.serviceOrderNo),
+      nextCallDate: lastCall?.nextCallDate || (isDateValue(lastCall?.shutdownDateGiven) ? lastCall.shutdownDateGiven : ''),
+      callFollowupStatus: isDateValue(order?.callFollowupStatus) ? 'No shutdown date not taken' : (order?.callFollowupStatus || 'Pending Call'),
       lastCall,
       callCount: calls.length,
       delayDays: getTaskDelay(
-        { ...task, plannedDate: running?.expectedShutdownDate || task.plannedDate },
+        { ...task, plannedDate: lastCall?.nextCallDate || running?.expectedShutdownDate || task.plannedDate },
         today
       )
     };
@@ -137,10 +152,13 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
     const lastCall = calls[0];
 
     // Priority for shutdown status: order status -> last call status
-    const callFollowupStatus =
+    const rawCallFollowupStatus =
       cleanCallStatus(order?.callFollowupStatus) ||
       cleanCallStatus(lastCall?.shutdownDateGiven) ||
       'Yes Shutdown date taken';
+    const callFollowupStatus = isDateValue(rawCallFollowupStatus)
+      ? 'No shutdown date not taken'
+      : rawCallFollowupStatus;
 
     return {
       task,
@@ -160,7 +178,7 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
       actualDate: task.actualDate || (lastCall ? lastCall.timestamp.slice(0, 10) : today),
       callCount: calls.length,
       callLogNo: formatCallLogNo(task.serviceOrderNo, lastCall?.callLogNo, calls.length || 1),
-      nextCallDate: lastCall?.nextCallDate || ''
+      nextCallDate: lastCall?.nextCallDate || (isDateValue(rawCallFollowupStatus) ? rawCallFollowupStatus : '')
     };
   });
 
@@ -173,6 +191,13 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
     const sameLogs = (data.callLogs || []).filter((log) => log.serviceOrderNo === call.serviceOrderNo);
     const callIndex = sameLogs.indexOf(call);
 
+    const rawCallStatus = call.shutdownDateGiven || '';
+    const isPendingPlaceholder = !rawCallStatus || rawCallStatus.trim().toLowerCase() === 'pending call';
+    const displayCallStatus = isPendingPlaceholder && task?.status === 'done' && !call.expectedShutdownDate
+      ? 'Forget to taken'
+      : (rawCallStatus || (call.expectedShutdownDate ? 'Yes Shutdown date taken' : 'Pending Call'));
+    const recoveredNextCallDate = call.nextCallDate || (isDateValue(displayCallStatus) ? displayCallStatus : '');
+
     return {
       task,
       order,
@@ -183,15 +208,15 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
       kilnNo: kiln ? kiln.kilnNo : visit ? visit.kilnNo : 1,
       kilnSize: kiln ? kiln.size : visit ? visit.kilnSize : '100 TPD',
       campaignNo: order?.campaignNo || visit?.campaignNo || '1',
-      expectedShutdownDate: call.shutdownDateGiven?.includes('Yes') ? call.expectedShutdownDate : null,
-      callFollowupStatus: cleanCallStatus(call.shutdownDateGiven) || 'Yes Shutdown date taken',
+      expectedShutdownDate: displayCallStatus.includes('Yes') ? call.expectedShutdownDate : null,
+      callFollowupStatus: isDateValue(displayCallStatus) ? 'No shutdown date not taken' : (cleanCallStatus(displayCallStatus) || 'Pending Call'),
       lastPersonCalled: call.personCalled || company?.siteIncharge || 'Site Incharge',
       mobile: call.mobile || company?.mobile || '—',
       designation: call.designation || 'Processor',
       actualDate: call.timestamp ? call.timestamp.slice(0, 10) : today,
       callCount: sameLogs.length,
       callLogNo: formatCallLogNo(call.serviceOrderNo, call.callLogNo, sameLogs.length - callIndex),
-      nextCallDate: call.nextCallDate || ''
+      nextCallDate: recoveredNextCallDate
     };
   });
 
@@ -203,9 +228,9 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
   const handleOpenCallModal = (row) => {
     setSelectedOrderNo(row.serviceOrderNo);
     const last = row.lastCall;
-    setPersonCalled('');
-    setMobile('');
-    setDesignation(last?.designation || 'Processor');
+    setPersonCalled(last?.personCalled || row.lastPersonCalled || activeCompany?.siteIncharge || '');
+    setMobile(last?.mobile || (row.mobile && row.mobile !== '—' ? row.mobile : '') || activeCompany?.mobile || '');
+    setDesignation(last?.designation || row.designation || 'Processor');
     setShutdownDateGiven('Yes Shutdown date taken');
     setExpectedShutdownDate(row.expectedShutdownDate !== '—' ? row.expectedShutdownDate : '');
     setNextCallDate('');
@@ -314,11 +339,17 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
           });
         }
 
-        // Dynamic Google Sheets sync first
+        // Dynamic Google Sheets sync first (never touch Planned or Delay cols, save to Followup sheet)
         await syncStepToGoogleSheet(3, selectedOrderNo, {
+          partyName,
+          personCalled: personCalled.trim(),
+          designation,
+          mobile: mobile.trim(),
+          shutdownDateGiven: cleanStatus,
           expectedShutdownDate: isYes ? expectedShutdownDate : '',
+          nextCallDate: '',
           status: cleanStatus,
-          plannedShutdownDate: isYes ? expectedShutdownDate : ''
+          timestamp: newLog.timestamp
         });
 
         await saveData(nextData);
@@ -334,9 +365,15 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
           callTask.delayDays = 0;
         }
         await syncStepToGoogleSheet(3, selectedOrderNo, {
+          partyName,
+          personCalled: personCalled.trim(),
+          designation,
+          mobile: mobile.trim(),
+          shutdownDateGiven: cleanStatus,
           expectedShutdownDate: '',
+          nextCallDate: '',
           status: cleanStatus,
-          plannedShutdownDate: ''
+          timestamp: newLog.timestamp
         });
 
         await saveData(nextData);
@@ -352,16 +389,22 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
           callTask.actualDate = null;
         }
         await syncStepToGoogleSheet(3, selectedOrderNo, {
+          partyName,
+          personCalled: personCalled.trim(),
+          designation,
+          mobile: mobile.trim(),
+          shutdownDateGiven: cleanStatus,
           expectedShutdownDate: '',
+          nextCallDate: nextCallDate,
           status: cleanStatus,
-          plannedShutdownDate: ''
+          timestamp: newLog.timestamp
         });
 
         await saveData(nextData);
         await refresh();
         setShowCallModal(false);
-        setActiveTab('history');
-        notify(`Call logged for ${selectedOrderNo}. Next call scheduled on ${formatDate(nextCallDate)}.`, 'good');
+        setActiveTab('pending');
+        notify(`Call logged for ${selectedOrderNo} (${newLog.callLogNo}). Next call scheduled on ${formatDate(nextCallDate)}. Order remains in Pending queue.`, 'good');
       }
     } catch (err) {
       notify('Failed to save call tracker: ' + err.message, 'bad');
@@ -448,7 +491,7 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
 
       // Log to callLogs
       if (!Array.isArray(nextData.callLogs)) nextData.callLogs = [];
-      nextData.callLogs.unshift({
+      const directLog = {
         callLogNo: getNextCallLogNo(nextData.callLogs, selectedOrderNo),
         timestamp: new Date().toISOString(),
         serviceOrderNo: selectedOrderNo,
@@ -459,20 +502,38 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
         shutdownDateGiven: cleanStatus,
         expectedShutdownDate: isYes ? expectedShutdownDate : null,
         nextCallDate: isNo ? nextCallDate : null
-      });
+      };
+      nextData.callLogs.unshift(directLog);
 
-      // Dynamic Google Sheets sync first
+      // Dynamic Google Sheets sync first (saves to both FMS and Followup for Shutdown tab)
       await syncStepToGoogleSheet(3, selectedOrderNo, {
+        partyName,
+        personCalled: directLog.personCalled,
+        designation: directLog.designation,
+        mobile: directLog.mobile,
+        shutdownDateGiven: cleanStatus,
         expectedShutdownDate: isYes ? expectedShutdownDate : '',
+        nextCallDate: isNo ? nextCallDate : '',
         status: cleanStatus,
-        plannedShutdownDate: isYes ? expectedShutdownDate : ''
+        plannedShutdownDate: isYes ? expectedShutdownDate : '',
+        timestamp: directLog.timestamp
       });
 
       await saveData(nextData);
       await refresh();
       setShowDirectUpdateModal(false);
-      setActiveTab('history');
-      notify(`Status updated for ${selectedOrderNo}. Moved to History!`, 'good');
+      if (isYes || isForget) {
+        setActiveTab('history');
+        notify(
+          isYes
+            ? `Shutdown date confirmed for ${selectedOrderNo}. Moved to History!`
+            : `Call logged for ${selectedOrderNo}. Restart The Process is now pending.`,
+          'good'
+        );
+      } else {
+        setActiveTab('pending');
+        notify(`Call logged for ${selectedOrderNo} (${directLog.callLogNo}). Next call scheduled on ${formatDate(nextCallDate)}. Order remains in Pending queue.`, 'good');
+      }
     } catch (err) {
       notify('Failed to update status: ' + err.message, 'bad');
     } finally {
@@ -490,7 +551,12 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
     );
   });
 
-  const filteredHistory = historyList.filter((item) => {
+  const completedHistory = historyList.filter((item) => {
+    const status = String(item.callFollowupStatus || '');
+    return status.includes('Yes') || status.includes('Forget');
+  });
+
+  const filteredHistory = completedHistory.filter((item) => {
     const q = search.toLowerCase();
     return (
       item.serviceOrderNo.toLowerCase().includes(q) ||
@@ -577,7 +643,7 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
             onClick={() => setActiveTab('history')}
             style={{ fontWeight: 600, padding: '8px 16px', height: '38px' }}
           >
-            History ({historyList.length})
+            History ({completedHistory.length})
           </button>
         </div>
 
@@ -835,7 +901,7 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
                   Call Tracker Form
                 </h3>
                 <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  Take Shutdown Date & log call for {selectedOrderNo}
+                  Take Shutdown Date & log call for {selectedOrderNo} ({getNextCallLogNo(data.callLogs, selectedOrderNo)})
                 </p>
               </div>
               <button
@@ -940,9 +1006,6 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
                     className="input-text"
                     style={{ borderColor: 'var(--primary)' }}
                   />
-                  <small style={{ color: 'var(--text-secondary)', fontSize: '11.5px', marginTop: '4px' }}>
-
-                  </small>
                 </div>
               )}
 
@@ -959,25 +1022,6 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
                     className="input-text"
                     style={{ borderColor: 'var(--warning)' }}
                   />
-                  <small style={{ color: 'var(--text-secondary)', fontSize: '11.5px', marginTop: '4px' }}>
-                    Call log will be recorded and the order will remain pending until the next call date.
-                  </small>
-                </div>
-              )}
-
-              {shutdownDateGiven.includes('Forget') && (
-                <div
-                  style={{
-                    padding: '10px 14px',
-                    borderRadius: '8px',
-                    background: 'var(--surface-subtle)',
-                    border: '1px solid var(--border)',
-                    marginBottom: '14px',
-                    fontSize: '12.5px',
-                    color: 'var(--text-secondary)'
-                  }}
-                >
-                  A Call Log will be saved and the order will remain pending until the next call date.
                 </div>
               )}
 

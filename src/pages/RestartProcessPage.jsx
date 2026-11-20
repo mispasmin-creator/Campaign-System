@@ -6,6 +6,13 @@ import CustomSelect from '../components/CustomSelect';
 import Pagination from '../components/Pagination';
 import DetailModal from '../components/DetailModal';
 
+const formatCampaignNo = (value) => {
+  const campaign = String(value || '').trim();
+  if (!campaign) return '—';
+  const number = campaign.replace(/^camp(?:aign)?[\s.\-_]*/i, '').trim();
+  return `Camp-${number || campaign}`;
+};
+
 export default function RestartProcessPage({ data, refresh, notify }) {
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState('pending');
@@ -28,8 +35,8 @@ export default function RestartProcessPage({ data, refresh, notify }) {
   const [inspectionIncharge, setInspectionIncharge] = useState('');
 
   const kilnSizeOptions = [...new Set([
-    '80 TPD', '100 TPD', '120 TPD', '150 TPD', '250 TPD', '350 TPD',
-    ...(data.kilns || []).map((k) => k.size).filter(Boolean)
+    ...(data?.kilnSizes && data.kilnSizes.length > 0 ? data.kilnSizes : ['80 TPD', '100 TPD', '120 TPD', '150 TPD']),
+    ...(data?.kilns || []).map((k) => k.size).filter(Boolean)
   ])];
 
   const nextRestartNo = selectedLog?.serviceOrderNo
@@ -37,7 +44,21 @@ export default function RestartProcessPage({ data, refresh, notify }) {
     : 'ReCN-00';
 
   const pendingLogs = (data.callLogs || [])
-    .filter((log) => log.shutdownDateGiven?.toLowerCase().includes('forget') && !log.restartServiceOrderNo)
+    .filter((log) => {
+      const status = String(log.shutdownDateGiven || '').toLowerCase();
+      const task = (data.stepTasks || []).find(
+        (item) => item.serviceOrderNo === log.serviceOrderNo && item.step === 'call'
+      );
+      const restartTask = (data.stepTasks || []).find(
+        (item) => item.serviceOrderNo === log.serviceOrderNo && item.step === 'restart'
+      );
+      const order = (data.orders || []).find(
+        (item) => item.serviceOrderNo === log.serviceOrderNo
+      );
+      const inferredForget = (!status || status === 'pending call') && task?.status === 'done' && !log.expectedShutdownDate;
+      const restartCompleted = restartTask?.status === 'done' || order?.status === 'closed';
+      return (status.includes('forget') || inferredForget) && !log.restartServiceOrderNo && !restartCompleted;
+    })
     .map((log) => {
       const oldOrder = (data.orders || []).find((order) => order.serviceOrderNo === log.serviceOrderNo);
       const kiln = oldOrder ? (data.kilns || []).find((item) => item.id === oldOrder.kilnId) : null;
@@ -50,7 +71,8 @@ export default function RestartProcessPage({ data, refresh, notify }) {
         oldKilnNo: kiln?.kilnNo || visit?.kilnNo || '—',
         oldKilnSize: kiln?.size || visit?.kilnSize || '—',
         oldCampaignStartDate: oldOrder?.campaignStartDate || visit?.campaignStartDate || null,
-        oldExpectedShutdownDate: oldOrder?.expectedShutdownDate || null
+        oldExpectedShutdownDate: oldOrder?.expectedShutdownDate || null,
+        restartPlannedDate: oldOrder?.restartPlannedDate || null
       };
     });
   const history = data.restartProcesses || [];
@@ -189,20 +211,20 @@ export default function RestartProcessPage({ data, refresh, notify }) {
         status: `Restarted -> ${nextRestartNo}`
       });
 
-      // 2. Sync Step 1 for new ReCN order
+      // 2. Sync Step 1 for new ReCN order (never touch Planned or Delay cols)
       await syncStepToGoogleSheet(1, nextRestartNo, {
         companyName: company?.name || 'Unknown Plant',
         campaignStartDate: startDate,
         campaignNo: campaignNo.trim(),
         kilnSize,
         kilnNo: Number(kilnNo),
-        inspectionIncharge: inspectionIncharge.trim(),
-        plannedRunningDate: startDate
+        inspectionIncharge: inspectionIncharge.trim()
       });
 
       await saveData(nextData);
       await refresh();
       setShowModal(false);
+      setActiveTab('history');
       notify(`${nextRestartNo} created for ${company?.name || 'the company'}. Running Inspection is now pending.`, 'good');
     } catch (error) {
       notify(error.message, 'bad');
@@ -292,7 +314,7 @@ export default function RestartProcessPage({ data, refresh, notify }) {
             <thead>
               <tr>
                 <th>Old Service Order</th>
-                <th>Call Log</th>
+                <th>Planned Date</th>
                 <th>Company</th>
                 <th>Old Campaign No.</th>
                 <th>Old Kiln No. & Size</th>
@@ -312,9 +334,9 @@ export default function RestartProcessPage({ data, refresh, notify }) {
                   title="Tap to view restart details"
                 >
                   <td><b className="cn">{log.serviceOrderNo}</b></td>
-                  <td className="mono">{log.callLogNo || 'Call Log'}</td>
+                  <td>{log.restartPlannedDate ? formatDate(log.restartPlannedDate) : '—'}</td>
                   <td><b>{log.partyName || 'Unknown Plant'}</b></td>
-                  <td>{log.oldCampaignNo}</td>
+                  <td>{formatCampaignNo(log.oldCampaignNo)}</td>
                   <td className="mono">Kiln {log.oldKilnNo} ({log.oldKilnSize})</td>
                   <td>{log.oldCampaignStartDate ? formatDate(log.oldCampaignStartDate) : '—'}</td>
                   <td>{log.oldExpectedShutdownDate ? formatDate(log.oldExpectedShutdownDate) : '—'}</td>
@@ -368,7 +390,7 @@ export default function RestartProcessPage({ data, refresh, notify }) {
                   <td className="mono">{item.sourceServiceOrderNo}</td>
                   <td><b>{item.companyName}</b></td>
                   <td>{item.what || 'Restarting The Process'}</td>
-                  <td>{item.campaignNo}</td>
+                  <td>{formatCampaignNo(item.campaignNo)}</td>
                   <td className="mono">Kiln {item.kilnNo || '—'} ({item.kilnSize || '—'})</td>
                   <td>{formatDate(item.campaignStartDate)}</td>
                   <td>{item.inspectionIncharge}</td>
@@ -413,7 +435,7 @@ export default function RestartProcessPage({ data, refresh, notify }) {
             <form onSubmit={handleSubmit}>
               <div className="field"><label>Service Order No. (Auto-generated)</label><input readOnly value={nextRestartNo} className="input-text mono" style={{ background: 'var(--surface-subtle)', fontWeight: 700, color: 'var(--primary)' }} /></div>
               <div className="field"><label>Old Service Order No.</label><input readOnly value={selectedLog?.serviceOrderNo || ''} className="input-text mono" style={{ background: 'var(--surface-subtle)' }} /></div>
-              <div className="field"><label>Name Of The Company *</label><CustomSelect required value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="select-input" placeholder="Select Company"><option value="">Select Company</option>{(data.companies || []).map((company) => <option key={company.id} value={company.id}>{company.name} ({company.kycNo || 'KYC'})</option>)}</CustomSelect></div>
+              <div className="field"><label>Name Of The Company *</label><CustomSelect required value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="select-input" placeholder="Select Company"><option value="">Select Company</option>{(data?.companies || []).map((company) => <option key={company.id} value={company.id}>{company.name}{company.kycNo ? ` (${company.kycNo})` : ''}</option>)}</CustomSelect></div>
               <div className="fieldrow"><div className="field"><label>Date Of Campaign Starting *</label><input required type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input-text" /></div><div className="field"><label>Campaign No. *</label><input required value={campaignNo} onChange={(e) => setCampaignNo(e.target.value)} placeholder="e.g. 2" className="input-text" /></div></div>
               <div className="fieldrow"><div className="field"><label>Size Of Kiln *</label><CustomSelect required value={kilnSize} onChange={(e) => setKilnSize(e.target.value)} className="select-input" placeholder="Select Kiln Size"><option value="">Select Kiln Size</option>{kilnSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}</CustomSelect></div><div className="field"><label>Kiln No. *</label><input required type="number" min="1" max="6" value={kilnNo} onChange={(e) => setKilnNo(e.target.value)} placeholder="e.g. 1" className="input-text" /></div></div>
               <div className="field"><label>Name Of Inspection Incharge *</label><input required value={inspectionIncharge} onChange={(e) => setInspectionIncharge(e.target.value)} placeholder="Enter inspection incharge name" className="input-text" /></div>
@@ -437,7 +459,11 @@ export default function RestartProcessPage({ data, refresh, notify }) {
             { label: 'ReCN / Service Order', value: viewingRestart.serviceOrderNo, mono: true },
             { label: 'Old Service Order', value: viewingRestart.sourceServiceOrderNo || viewingRestart.serviceOrderNo, mono: true },
             { label: 'Kiln No. & Size', value: `Kiln ${viewingRestart.kilnNo || viewingRestart.oldKilnNo || '—'} (${viewingRestart.kilnSize || viewingRestart.oldKilnSize || '—'})`, mono: true },
-            { label: 'Campaign No.', value: viewingRestart.campaignNo || viewingRestart.oldCampaignNo, mono: true },
+            { label: 'Campaign No.', value: formatCampaignNo(viewingRestart.campaignNo || viewingRestart.oldCampaignNo), mono: true },
+            ...(viewingRestart.restartPlannedDate ? [{
+              label: 'Planned Date',
+              value: formatDate(viewingRestart.restartPlannedDate)
+            }] : []),
             { label: 'Campaign Start Date', value: formatDate(viewingRestart.campaignStartDate || viewingRestart.oldCampaignStartDate) },
             { label: 'Inspection Incharge', value: viewingRestart.inspectionIncharge || '—' },
             { label: 'Process Status', value: viewingRestart.what || 'Restarting The Process' },

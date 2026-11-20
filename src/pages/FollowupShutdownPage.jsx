@@ -1,13 +1,26 @@
 import React, { useState } from 'react';
 import { formatDate } from '../utils/workflow';
+import { syncFollowupCallToGoogleSheet } from '../services/googleSheets';
 import CustomSelect from '../components/CustomSelect';
 
-export default function FollowupShutdownPage({ data, notify }) {
+export default function FollowupShutdownPage({ data, refresh, notify }) {
   const [search, setSearch] = useState('');
   const [outcomeFilter, setOutcomeFilter] = useState('');
   const [designationFilter, setDesignationFilter] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const callLogs = data.callLogs || [];
+
+  const getCallLogNo = (log) => {
+    const rawMatch = String(log.callLogNo || '').match(/Call\s*-\s*(\d+)/i);
+    const matchingLogs = callLogs.filter(
+      (item) => String(item.serviceOrderNo || '').trim().toUpperCase() === String(log.serviceOrderNo || '').trim().toUpperCase()
+    );
+    const logIndex = matchingLogs.indexOf(log);
+    const sequence = rawMatch ? Number(rawMatch[1]) : Math.max(matchingLogs.length - logIndex, 1);
+    const cleanOrder = String(log.serviceOrderNo || '').trim().replace(/\s+/g, '').replace(/^CN-0*(\d+)/i, 'CN$1');
+    return `${cleanOrder}Call-${String(sequence).padStart(2, '0')}`;
+  };
 
   // Metrics
   const totalCalls = callLogs.length;
@@ -19,6 +32,7 @@ export default function FollowupShutdownPage({ data, notify }) {
     const q = search.toLowerCase();
     const matchSearch =
       (log.serviceOrderNo || '').toLowerCase().includes(q) ||
+      getCallLogNo(log).toLowerCase().includes(q) ||
       (log.partyName || '').toLowerCase().includes(q) ||
       (log.personCalled || '').toLowerCase().includes(q) ||
       (log.mobile || '').toLowerCase().includes(q);
@@ -32,10 +46,47 @@ export default function FollowupShutdownPage({ data, notify }) {
   const formatDateTime = (iso) => {
     if (!iso) return '—';
     try {
-      const d = new Date(iso);
-      return `${d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      let d = new Date(iso);
+      if (isNaN(d.getTime())) {
+        const dmyTime = String(iso).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+        if (dmyTime) {
+          d = new Date(
+            parseInt(dmyTime[3], 10),
+            parseInt(dmyTime[2], 10) - 1,
+            parseInt(dmyTime[1], 10),
+            parseInt(dmyTime[4], 10),
+            parseInt(dmyTime[5], 10),
+            parseInt(dmyTime[6] || 0, 10)
+          );
+        }
+      }
+      if (!isNaN(d.getTime())) {
+        return `${d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      }
+      return iso;
     } catch {
       return iso;
+    }
+  };
+
+  const handleSyncToSheet = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      if (callLogs.length === 0) {
+        if (notify) notify('No followup call records to sync', 'bad');
+        setIsSyncing(false);
+        return;
+      }
+      for (const log of callLogs) {
+        await syncFollowupCallToGoogleSheet(log);
+      }
+      if (refresh) await refresh();
+      if (notify) notify(`Synced ${callLogs.length} call records directly into Google Sheet!`, 'good');
+    } catch (err) {
+      if (notify) notify('Sync error: ' + err.message, 'bad');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -48,8 +99,22 @@ export default function FollowupShutdownPage({ data, notify }) {
             Followup for Shutdown
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-
+            Chronological call tracking & shutdown date confirmation
           </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            className="btn small"
+            onClick={handleSyncToSheet}
+            disabled={isSyncing}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={isSyncing ? 'spin' : ''}>
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+            </svg>
+            {isSyncing ? 'Syncing...' : 'Sync to Sheet'}
+          </button>
         </div>
       </div>
 
@@ -188,11 +253,12 @@ export default function FollowupShutdownPage({ data, notify }) {
         </div>
 
         <div className="table-wrap">
-          <table className="data-table">
+          <table className="data-table" style={{ minWidth: '1380px' }}>
             <thead>
               <tr>
                 <th>Date & Time</th>
                 <th>Order No.</th>
+                <th>Call Log</th>
                 <th>Party Name</th>
                 <th>Person Called</th>
                 <th>Designation</th>
@@ -204,7 +270,7 @@ export default function FollowupShutdownPage({ data, notify }) {
             <tbody>
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan="8" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-secondary)' }}>
+                  <td colSpan="9" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-secondary)' }}>
                     No call followup records found.
                   </td>
                 </tr>
@@ -216,6 +282,9 @@ export default function FollowupShutdownPage({ data, notify }) {
                     </td>
                     <td>
                       <span className="cn">{log.serviceOrderNo}</span>
+                    </td>
+                    <td className="mono" style={{ fontSize: '12.5px', fontWeight: 600 }}>
+                      {getCallLogNo(log)}
                     </td>
                     <td style={{ fontWeight: 600, color: 'var(--text)' }}>
                       {log.partyName}

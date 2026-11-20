@@ -1169,7 +1169,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 /* Floating Dropdown Menu */
 .custom-select-dropdown {
   position: absolute;
-  top: calc(100% + 5px);
   left: 0;
   right: 0;
   z-index: 9999;
@@ -1180,7 +1179,33 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   padding: 6px;
   max-height: 240px;
   overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.custom-select-dropdown.placement-bottom {
+  top: calc(100% + 5px);
+  bottom: auto;
+  transform-origin: top center;
   animation: scaleUp 0.15s ease-out;
+}
+
+.custom-select-dropdown.placement-top {
+  bottom: calc(100% + 5px);
+  top: auto;
+  transform-origin: bottom center;
+  box-shadow: 0 -12px 28px -4px rgba(0, 0, 0, 0.16), 0 -4px 10px -2px rgba(0, 0, 0, 0.08);
+  animation: scaleUpFromBottom 0.15s ease-out;
+}
+
+@keyframes scaleUpFromBottom {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .custom-select-dropdown::-webkit-scrollbar {
@@ -1239,7 +1264,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .custom-select-item-label {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.35;
+  flex: 1;
 }
 
 .custom-select-check {
@@ -1266,6 +1294,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   background: var(--surface-raised);
   border-color: var(--border-subtle);
   box-shadow: var(--shadow-lg);
+}
+
+:root[data-theme="dark"] .custom-select-dropdown.placement-top {
+  box-shadow: 0 -14px 32px -4px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 :root[data-theme="dark"] .custom-select-item {

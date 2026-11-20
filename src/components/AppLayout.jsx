@@ -15,10 +15,9 @@ export default function AppLayout({ children, theme, toggleTheme, onSync, onLogo
 
   const handleLogout = () => {
     logoutUser();
+    navigate('/', { replace: true });
     if (onLogout) {
       onLogout();
-    } else {
-      navigate('/login');
     }
   };
 

@@ -203,8 +203,8 @@ export default function StepForms({ data, refresh, notify }) {
         }
 
         // Generate next CN number
-        const existingNums = nextData.orders
-          .map((o) => parseInt(o.serviceOrderNo.replace(/\D/g, ''), 10))
+        const existingNums = (nextData.orders || [])
+          .map((o) => parseInt(String(o?.serviceOrderNo || '').replace(/\D/g, ''), 10))
           .filter(Boolean);
         const maxNum = existingNums.length ? Math.max(...existingNums) : 0;
         const newServiceOrderNo = `CN-${String(maxNum + 1).padStart(2, '0')}`;
@@ -501,9 +501,6 @@ export default function StepForms({ data, refresh, notify }) {
                           );
                         })}
                     </CustomSelect>
-                    <small style={{ color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
-                      Submitting will close this service order and spawn the next campaign cycle.
-                    </small>
                   </div>
                 )}
 
@@ -518,9 +515,9 @@ export default function StepForms({ data, refresh, notify }) {
                     required
                   >
                     <option value="">Select Client Plant Company</option>
-                    {(data.companies || []).map((c) => (
+                    {(data?.companies || []).map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name} ({c.kycNo || 'KYC'})
+                        {c.name}{c.kycNo ? ` (${c.kycNo})` : ''}
                       </option>
                     ))}
                   </CustomSelect>
@@ -587,10 +584,6 @@ export default function StepForms({ data, refresh, notify }) {
                     className="input-text"
                     required
                   />
-                </div>
-
-                <div style={{ background: 'var(--primary-soft)', padding: '12px', borderRadius: '8px', marginTop: '12px', fontSize: '13px', color: 'var(--text)' }}>
-                  ℹ <b>Auto CN Generation:</b> Submitting will automatically generate the next Service Order number (e.g. <code>CN-13</code>), complete Company Visit, and schedule Running Kiln Inspection for the <b>Campaign Start Date</b> ({formatDate(vStart)}).
                 </div>
               </div>
             )}
