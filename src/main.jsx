@@ -14,10 +14,19 @@ import FollowupShutdownPage from './pages/FollowupShutdownPage';
 import ShutdownInspectionPage from './pages/ShutdownInspectionPage';
 import RestartProcessPage from './pages/RestartProcessPage';
 import CampaignDashboard from './pages/CampaignDashboard';
-import Masters from './pages/Masters';
 
 import { useData } from './hooks/useData';
 import { getCurrentUser, hasPageAccess, getFirstAllowedPath } from './services/auth';
+
+// Remove stale service workers left by older builds. The current app does not
+// ship a service worker, and old workers can reuse a Response body twice.
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => registrations.forEach((registration) => registration.unregister()))
+      .catch(() => {});
+  });
+}
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -300,16 +309,6 @@ function App() {
           element={
             <ProtectedRoute pageId="restart-process" currentUser={currentUser}>
               <RestartProcessPage data={data} refresh={refresh} notify={notify} />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Masters Management */}
-        <Route
-          path="/masters"
-          element={
-            <ProtectedRoute pageId="masters" currentUser={currentUser}>
-              <Masters data={data} refresh={refresh} notify={notify} />
             </ProtectedRoute>
           }
         />

@@ -106,19 +106,6 @@ export default function AppLayout({ children, theme, toggleTheme, onSync, onLogo
       )
     },
     {
-      id: 'masters',
-      to: '/masters',
-      label: 'Masters',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M2 20h20" />
-          <path d="M5 20V8l5 3V4l9 5v11" />
-          <path d="M9 14h2" />
-          <path d="M14 14h2" />
-        </svg>
-      )
-    },
-    {
       id: 'access',
       to: '/access',
       label: 'User & Access',
@@ -137,7 +124,7 @@ export default function AppLayout({ children, theme, toggleTheme, onSync, onLogo
   const visibleNavItems = allNavItems.filter((item) => hasPageAccess(currentUser, item.id));
 
   // Primary navigation items for Mobile Floating Bottom Navigation Bar (up to 4 items + More)
-  const mobileNavPriority = ['dashboard', 'visit', 'running', 'take-shutdown-date', 'masters'];
+  const mobileNavPriority = ['dashboard', 'visit', 'running', 'take-shutdown-date'];
   const mobilePrimaryItems = allNavItems
     .filter((item) => mobileNavPriority.includes(item.id) && hasPageAccess(currentUser, item.id))
     .slice(0, 4);

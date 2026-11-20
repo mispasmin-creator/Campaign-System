@@ -9,16 +9,20 @@ import {
   DEFAULT_USERS,
   getCurrentUser,
   hasPageAccess,
+  getPageAccessLevel,
   formatAccessString,
   normalizeUserRole
 } from '../services/auth';
 import DetailModal from '../components/DetailModal';
+import Pagination from '../components/Pagination';
 
 export default function UserAccessPage({ notify }) {
   const [currentUser, setCurrentUserState] = useState(getCurrentUser());
   const [usersList, setUsersList] = useState(DEFAULT_USERS);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // View Details Modal State
   const [viewingUser, setViewingUser] = useState(null);
@@ -31,6 +35,7 @@ export default function UserAccessPage({ notify }) {
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [editStatus, setEditStatus] = useState('Active');
   const [selectedPages, setSelectedPages] = useState([]);
+  const [pageAccessLevels, setPageAccessLevels] = useState({});
   const [isSavingAccess, setIsSavingAccess] = useState(false);
 
   // Add User Modal
@@ -80,6 +85,7 @@ export default function UserAccessPage({ notify }) {
     setEditStatus(u.status || 'Active');
     const currentAllowed = APP_PAGES.filter((p) => hasPageAccess(u, p.id)).map((p) => p.id);
     setSelectedPages(currentAllowed);
+    setPageAccessLevels(Object.fromEntries(APP_PAGES.map((p) => [p.id, getPageAccessLevel(u, p.id)])));
   };
 
   // Toggle page selection in Edit Modal
@@ -89,16 +95,28 @@ export default function UserAccessPage({ notify }) {
     );
   };
 
+  const handlePageAccessLevel = (pageId, level) => {
+    setPageAccessLevels((prev) => ({ ...prev, [pageId]: level }));
+    setSelectedPages((prev) => {
+      if (level === 'none') return prev.filter((id) => id !== pageId);
+      return prev.includes(pageId) ? prev : [...prev, pageId];
+    });
+  };
+
   // Quick Presets
   const applyPreset = (presetType) => {
     if (presetType === 'all') {
       setSelectedPages(APP_PAGES.map((p) => p.id));
+      setPageAccessLevels(Object.fromEntries(APP_PAGES.map((p) => [p.id, 'full'])));
     } else if (presetType === 'inspector') {
       setSelectedPages(['dashboard', 'running', 'take-shutdown-date', 'shutdown-inspection']);
+      setPageAccessLevels(Object.fromEntries(APP_PAGES.map((p) => [p.id, ['dashboard', 'running', 'take-shutdown-date', 'shutdown-inspection'].includes(p.id) ? 'full' : 'none'])));
     } else if (presetType === 'coordinator') {
-      setSelectedPages(['dashboard', 'visit', 'take-shutdown-date', 'restart-process', 'masters']);
+      setSelectedPages(['dashboard', 'visit', 'take-shutdown-date', 'restart-process']);
+      setPageAccessLevels(Object.fromEntries(APP_PAGES.map((p) => [p.id, ['dashboard', 'visit', 'take-shutdown-date', 'restart-process'].includes(p.id) ? 'full' : 'none'])));
     } else if (presetType === 'clear') {
       setSelectedPages([]);
+      setPageAccessLevels(Object.fromEntries(APP_PAGES.map((p) => [p.id, 'none'])));
     }
   };
 
@@ -110,14 +128,20 @@ export default function UserAccessPage({ notify }) {
       return;
     }
     setIsSavingAccess(true);
-    const accessStr = formatAccessString(selectedPages);
+    const isAdminReset = normalizeUserRole(editingUser.role) === 'Admin';
+    const accessEntries = APP_PAGES.flatMap((page) => {
+      const level = pageAccessLevels[page.id] || (selectedPages.includes(page.id) ? 'full' : 'none');
+      return level === 'none' ? [] : [`${level}:${page.id}`];
+    });
+    const allFull = APP_PAGES.every((page) => (pageAccessLevels[page.id] || (selectedPages.includes(page.id) ? 'full' : 'none')) === 'full');
+    const accessStr = isAdminReset ? editingUser.access : (allFull ? 'All' : formatAccessString(accessEntries));
 
     const updatedUser = {
       userId: editingUser.userId,
-      name: editName.trim(),
-      role: normalizeUserRole(editRole),
+      name: isAdminReset ? editingUser.name : editName.trim(),
+      role: isAdminReset ? 'Admin' : normalizeUserRole(editRole),
       password: editPassword.trim(),
-      status: editStatus,
+      status: isAdminReset ? editingUser.status : editStatus,
       access: accessStr
     };
 
@@ -216,6 +240,13 @@ export default function UserAccessPage({ notify }) {
     );
   });
 
+  const isEditingAdmin = editingUser && normalizeUserRole(editingUser.role) === 'Admin';
+  const paginatedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
+
   return (
     <div className="page-container" style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
       {/* Top Banner / Breadcrumb */}
@@ -242,6 +273,7 @@ export default function UserAccessPage({ notify }) {
           <button
             type="button"
             className="btn small"
+            hidden
             onClick={loadUsers}
             disabled={isLoading}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
@@ -331,7 +363,7 @@ export default function UserAccessPage({ notify }) {
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((u, idx) => {
+                paginatedUsers.map((u, idx) => {
                   const allowedList = APP_PAGES.filter((p) => hasPageAccess(u, p.id));
                   const isAll = allowedList.length === APP_PAGES.length || String(u.access).toLowerCase() === 'all';
 
@@ -547,6 +579,17 @@ export default function UserAccessPage({ notify }) {
             </tbody>
           </table>
         </div>
+        <Pagination
+          totalItems={filteredUsers.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[5, 10, 20, 50, 100]}
+          searchValue={searchQuery}
+          onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+          searchPlaceholder="Search users..."
+        />
       </div>
 
       {/* EDIT USER DETAILS & PAGE ACCESS MODAL */}
@@ -564,7 +607,7 @@ export default function UserAccessPage({ notify }) {
             <div className="modal-header" style={{ alignItems: 'flex-start', marginBottom: '16px' }}>
               <div>
                 <h3 style={{ margin: '0 0 4px', fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  Edit User & Permissions
+                  {isEditingAdmin ? 'Reset Admin Password' : 'Edit User & Permissions'}
                 </h3>
                 <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                   User ID: <strong style={{ color: 'var(--primary)' }}>{editingUser.userId}</strong>
@@ -589,6 +632,7 @@ export default function UserAccessPage({ notify }) {
                 <input
                   type="text"
                   value={editName}
+                  disabled={isEditingAdmin}
                   onChange={(e) => setEditName(e.target.value)}
                   className="input-text"
                   placeholder="Full Name"
@@ -602,6 +646,7 @@ export default function UserAccessPage({ notify }) {
                 </label>
                 <select
                   value={editRole}
+                  disabled={isEditingAdmin}
                   onChange={(e) => setEditRole(e.target.value)}
                   className="select-input"
                   style={{ width: '100%', fontSize: '0.85rem' }}
@@ -652,6 +697,7 @@ export default function UserAccessPage({ notify }) {
                 </label>
                 <select
                   value={editStatus}
+                  disabled={isEditingAdmin}
                   onChange={(e) => setEditStatus(e.target.value)}
                   className="select-input"
                   style={{ width: '100%', fontSize: '0.85rem' }}
@@ -671,6 +717,7 @@ export default function UserAccessPage({ notify }) {
                 <button
                   type="button"
                   className="btn small"
+                  disabled={isEditingAdmin}
                   onClick={() => applyPreset('all')}
                   style={{
                     display: 'inline-flex',
@@ -691,44 +738,7 @@ export default function UserAccessPage({ notify }) {
                 <button
                   type="button"
                   className="btn small"
-                  onClick={() => applyPreset('inspector')}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '0.74rem',
-                    fontWeight: 600,
-                    padding: '5px 10px'
-                  }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="11" cy="11" r="8" />
-                    <path d="m21 21-4.35-4.35" />
-                  </svg>
-                  Inspection Access
-                </button>
-                <button
-                  type="button"
-                  className="btn small"
-                  onClick={() => applyPreset('coordinator')}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '0.74rem',
-                    fontWeight: 600,
-                    padding: '5px 10px'
-                  }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-                    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-                  </svg>
-                  Coordinator Access
-                </button>
-                <button
-                  type="button"
-                  className="btn small"
+                  disabled={isEditingAdmin}
                   onClick={() => applyPreset('clear')}
                   style={{
                     display: 'inline-flex',
@@ -753,19 +763,19 @@ export default function UserAccessPage({ notify }) {
             {/* Checklist of Pages */}
             <div
               style={{
+                display: 'flex',
                 border: '1px solid var(--border-color, #e2e8f0)',
                 borderRadius: '10px',
                 padding: '10px',
                 maxHeight: '220px',
                 overflowY: 'auto',
                 marginBottom: '18px',
-                display: 'flex',
                 flexDirection: 'column',
                 gap: '6px'
               }}
             >
               {APP_PAGES.map((page) => {
-                const isChecked = selectedPages.includes(page.id);
+                const accessLevel = pageAccessLevels[page.id] || (selectedPages.includes(page.id) ? 'full' : 'none');
                 return (
                   <label
                     key={page.id}
@@ -775,18 +785,12 @@ export default function UserAccessPage({ notify }) {
                       gap: '10px',
                       padding: '7px 10px',
                       borderRadius: '8px',
-                      background: isChecked ? 'var(--primary-soft)' : 'transparent',
-                      border: isChecked ? '1px solid var(--primary)' : '1px solid transparent',
+                      background: accessLevel !== 'none' ? 'var(--primary-soft)' : 'transparent',
+                      border: accessLevel !== 'none' ? '1px solid var(--primary)' : '1px solid transparent',
                       cursor: 'pointer',
                       transition: 'all 0.15s ease'
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => handleTogglePage(page.id)}
-                      style={{ marginTop: '3px', cursor: 'pointer' }}
-                    />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                         {page.label}
@@ -795,6 +799,18 @@ export default function UserAccessPage({ notify }) {
                         {page.description}
                       </div>
                     </div>
+                    <select
+                      value={accessLevel}
+                      disabled={isEditingAdmin}
+                      onChange={(e) => handlePageAccessLevel(page.id, e.target.value)}
+                      className="select-input"
+                      aria-label={`${page.label} access level`}
+                      style={{ width: '130px', padding: '5px 8px', fontSize: '0.75rem' }}
+                    >
+                      <option value="none">No Access</option>
+                      <option value="view">View Only</option>
+                      <option value="full">Full Access</option>
+                    </select>
                   </label>
                 );
               })}

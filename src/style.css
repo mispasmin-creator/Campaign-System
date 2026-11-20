@@ -2053,6 +2053,28 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   width: 100%;
 }
 
+.pagination-container {
+  position: relative;
+  z-index: 1;
+  clear: both;
+}
+
+@media (max-width: 700px) {
+  .pagination-container {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    overflow: visible !important;
+  }
+
+  .pagination-container > div {
+    width: 100%;
+  }
+
+  .pagination-container > div:last-child {
+    justify-content: flex-start !important;
+  }
+}
+
 table,
 .data-table {
   width: 100%;

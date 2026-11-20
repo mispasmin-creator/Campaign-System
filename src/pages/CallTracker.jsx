@@ -21,6 +21,7 @@ export default function CallTracker({ data, refresh, notify }) {
   // Pagination State
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [search, setSearch] = useState('');
 
   // Find all orders that have a pending 'call' task and no finalized shutdown inspection yet
   const callTasks = (data.stepTasks || []).filter((t) => t.step === 'call' && t.status === 'pending');
@@ -210,7 +211,18 @@ export default function CallTracker({ data, refresh, notify }) {
   const selectedItem = waitingOrders.find((w) => w.order.serviceOrderNo === selectedOrderNo) || waitingOrders[0];
   const selectedLogs = (data.callLogs || []).filter((l) => l.serviceOrderNo === (selectedItem?.order.serviceOrderNo || selectedOrderNo));
 
-  const paginatedWaiting = waitingOrders.slice((page - 1) * pageSize, page * pageSize);
+  const filteredWaiting = waitingOrders.filter((item) => {
+    const query = search.trim().toLowerCase();
+    if (!query) return true;
+    return String(item.order.serviceOrderNo || '').toLowerCase().includes(query)
+      || String(item.company?.name || '').toLowerCase().includes(query)
+      || String(item.company?.siteIncharge || '').toLowerCase().includes(query);
+  });
+  const paginatedWaiting = filteredWaiting.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   return (
     <div>
@@ -231,8 +243,16 @@ export default function CallTracker({ data, refresh, notify }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) minmax(0, 1fr)', gap: '20px', alignItems: 'start' }}>
         {/* LEFT: TABLE OF ORDERS AWAITING SHUTDOWN CONFIRMATION */}
         <div className="card-panel">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h2 style={{ margin: 0 }}>Orders Awaiting Shutdown Confirmation ({waitingOrders.length})</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+            <h2 style={{ margin: 0 }}>Orders Awaiting Shutdown Confirmation</h2>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search order or company..."
+              className="input-text"
+              style={{ width: '240px', maxWidth: '100%' }}
+            />
           </div>
 
           <div className="tablewrap">
@@ -320,12 +340,15 @@ export default function CallTracker({ data, refresh, notify }) {
           </div>
 
           <Pagination
-            totalItems={waitingOrders.length}
+            totalItems={filteredWaiting.length}
             page={page}
             pageSize={pageSize}
             onPageChange={setPage}
             onPageSizeChange={setPageSize}
             pageSizeOptions={[5, 10, 20, 50]}
+            searchValue={search}
+            onSearchChange={(value) => { setSearch(value); setPage(1); }}
+            searchPlaceholder="Search order or company..."
           />
         </div>
 

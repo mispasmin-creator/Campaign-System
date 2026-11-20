@@ -24,6 +24,7 @@ export default function RestartProcessPage({ data, refresh, notify }) {
   const [pendingPageSize, setPendingPageSize] = useState(10);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(10);
+  const [search, setSearch] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
 
   const [selectedLog, setSelectedLog] = useState(null);
@@ -76,6 +77,13 @@ export default function RestartProcessPage({ data, refresh, notify }) {
       };
     });
   const history = data.restartProcesses || [];
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchesSearch = (record) => !normalizedSearch
+    || String(record.serviceOrderNo || '').toLowerCase().includes(normalizedSearch)
+    || String(record.partyName || record.companyName || '').toLowerCase().includes(normalizedSearch)
+    || String(record.callLogNo || '').toLowerCase().includes(normalizedSearch);
+  const filteredPendingLogs = pendingLogs.filter(matchesSearch);
+  const filteredHistory = history.filter(matchesSearch);
 
   const openRestartForm = (log) => {
     const oldOrder = (data.orders || []).find((order) => order.serviceOrderNo === log.serviceOrderNo);
@@ -253,13 +261,13 @@ export default function RestartProcessPage({ data, refresh, notify }) {
     }
   };
 
-  const paginatedPending = pendingLogs.slice(
+  const paginatedPending = filteredPendingLogs.slice(
     (pendingPage - 1) * pendingPageSize,
     pendingPage * pendingPageSize
   );
 
   const reversedHistory = [...history].reverse();
-  const paginatedHistory = reversedHistory.slice(
+  const paginatedHistory = filteredHistory.slice(
     (historyPage - 1) * historyPageSize,
     historyPage * historyPageSize
   );
@@ -291,6 +299,7 @@ export default function RestartProcessPage({ data, refresh, notify }) {
           <button
             type="button"
             className="btn small"
+            hidden
             onClick={handleSyncWithSheet}
             disabled={isSyncing}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', height: '34px' }}
@@ -306,7 +315,7 @@ export default function RestartProcessPage({ data, refresh, notify }) {
 
       {activeTab === 'pending' && <div className="card-panel">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-          <h2 style={{ margin: 0 }}>Restart Process Pending ({pendingLogs.length})</h2>
+          <h2 style={{ margin: 0 }}>Restart Process Pending</h2>
           <span className="pill warn">Forget to taken</span>
         </div>
         <div className="tablewrap">
@@ -329,9 +338,6 @@ export default function RestartProcessPage({ data, refresh, notify }) {
               ) : paginatedPending.map((log) => (
                 <tr
                   key={`${log.serviceOrderNo}-${log.timestamp}`}
-                  onClick={() => setViewingRestart(log)}
-                  className="clickable-row"
-                  title="Tap to view restart details"
                 >
                   <td><b className="cn">{log.serviceOrderNo}</b></td>
                   <td>{log.restartPlannedDate ? formatDate(log.restartPlannedDate) : '—'}</td>
@@ -359,18 +365,21 @@ export default function RestartProcessPage({ data, refresh, notify }) {
 
         {/* TAB 1 PAGINATION */}
         <Pagination
-          totalItems={pendingLogs.length}
+          totalItems={filteredPendingLogs.length}
           page={pendingPage}
           pageSize={pendingPageSize}
           onPageChange={setPendingPage}
           onPageSizeChange={setPendingPageSize}
           pageSizeOptions={[5, 10, 20, 50, 100]}
+          searchValue={search}
+          onSearchChange={(value) => { setSearch(value); setPendingPage(1); setHistoryPage(1); }}
+          searchPlaceholder="Search order or company..."
         />
       </div>}
 
       {activeTab === 'history' && <div className="card-panel">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-          <h2 style={{ margin: 0 }}>Restart Process History ({history.length})</h2>
+          <h2 style={{ margin: 0 }}>Restart Process History</h2>
           <span className="pill good">ReCN Orders</span>
         </div>
         <div className="tablewrap">
@@ -416,12 +425,15 @@ export default function RestartProcessPage({ data, refresh, notify }) {
 
         {/* TAB 2 PAGINATION */}
         <Pagination
-          totalItems={reversedHistory.length}
+          totalItems={filteredHistory.length}
           page={historyPage}
           pageSize={historyPageSize}
           onPageChange={setHistoryPage}
           onPageSizeChange={setHistoryPageSize}
           pageSizeOptions={[5, 10, 20, 50, 100]}
+          searchValue={search}
+          onSearchChange={(value) => { setSearch(value); setPendingPage(1); setHistoryPage(1); }}
+          searchPlaceholder="Search order or company..."
         />
       </div>}
 

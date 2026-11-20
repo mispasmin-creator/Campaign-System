@@ -1,14 +1,36 @@
 import React from 'react';
 
+function getDriveFileId(value) {
+  if (!value || typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  const match = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/) || trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) return match[1];
+  // The Shutdown Inspection sheet may contain a raw Drive file ID rather
+  // than a full URL, depending on how the value was written to the cell.
+  if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) return trimmed;
+  return '';
+}
+
 /**
  * Converts a Google Drive link or ID into a clean image preview/thumbnail URL
  */
 export function getDriveImagePreview(url) {
   if (!url || typeof url !== 'string') return '';
   if (url.startsWith('data:')) return url;
-  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  if (match && match[1]) {
-    return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
+  const fileId = getDriveFileId(url);
+  if (fileId) {
+    return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+  }
+  return url;
+}
+
+/** Returns a full-size image URL for a Drive file (or the original URL). */
+export function getDriveImageFullUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  if (url.startsWith('data:')) return url;
+  const fileId = getDriveFileId(url);
+  if (fileId) {
+    return `https://drive.google.com/uc?export=view&id=${fileId}`;
   }
   return url;
 }
@@ -24,14 +46,21 @@ export default function DetailModal({
   title = 'Record Details',
   subtitle,
   badge,
+  hideBadge = false,
   badgeTone = 'good',
   items = [],
   readings = null, // e.g. { title: '9-Zone Readings', unit: 'mm', values: [200, 195, ...] }
   photoUrl = null,
+  photoUrls = null,
+  hiddenItemLabels = [],
   onEdit = null,
   editLabel = 'Edit Record'
 }) {
   if (!isOpen) return null;
+
+  const photos = Array.isArray(photoUrls)
+    ? photoUrls.filter(Boolean)
+    : (photoUrl ? [photoUrl] : []);
 
   return (
     <div
@@ -75,7 +104,7 @@ export default function DetailModal({
               <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
                 {title}
               </h3>
-              {badge && (
+              {badge && !hideBadge && (
                 <span className={`pill ${badgeTone}`} style={{ fontSize: '11px', padding: '3px 8px' }}>
                   {badge}
                 </span>
@@ -115,7 +144,7 @@ export default function DetailModal({
             marginBottom: '18px'
           }}
         >
-          {items.map((it, idx) => {
+          {items.filter((it) => !hiddenItemLabels.includes(it.label)).map((it, idx) => {
             const isFull = it.fullWidth || (it.value && String(it.value).length > 30);
             return (
               <div
@@ -209,7 +238,7 @@ export default function DetailModal({
         )}
 
         {/* OPTIONAL PHOTO PREVIEW */}
-        {photoUrl && (
+        {photos.length > 0 && (
           <div
             style={{
               marginBottom: '18px',
@@ -233,21 +262,23 @@ export default function DetailModal({
                 </a>
               )}
             </div>
-            <img
-              src={getDriveImagePreview(photoUrl)}
-              alt="Inspection Record"
-              style={{
-                width: '100%',
-                maxHeight: '260px',
-                objectFit: 'contain',
-                display: 'block',
-                background: 'rgba(0,0,0,0.05)'
-              }}
-              onError={(e) => {
-                // If direct thumbnail fails, keep container clean
-                e.target.style.display = 'none';
-              }}
-            />
+            <div style={{ display: 'grid', gridTemplateColumns: photos.length > 1 ? 'repeat(3, 1fr)' : '1fr', gap: '10px', padding: '10px' }}>
+              {photos.map((photo, index) => (
+                <div key={`${photo}-${index}`} style={{ minWidth: 0, textAlign: 'center' }}>
+                  <a href={getDriveImageFullUrl(photo)} target="_blank" rel="noreferrer" title={`Open Zone ${index + 1} full image`} style={{ display: 'block', cursor: 'zoom-in' }}>
+                    <img
+                      src={getDriveImagePreview(photo)}
+                      alt={`Zone ${index + 1}`}
+                      style={{ width: '100%', height: photos.length > 1 ? '130px' : '260px', objectFit: 'contain', display: 'block', borderRadius: '8px', background: 'rgba(0,0,0,0.05)' }}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  </a>
+                  <a href={getDriveImageFullUrl(photo)} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', display: 'inline-block', marginTop: '5px', fontSize: '11px', fontWeight: 600 }}>
+                    Open Zone {index + 1} image ↗
+                  </a>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

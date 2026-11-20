@@ -265,7 +265,7 @@ export default function Masters({ data, refresh, notify }) {
               onClick={() => setActiveTab('companies')}
               style={{ height: '34px' }}
             >
-              Companies ({(data.companies || []).length})
+              Companies
             </button>
             <button
               type="button"
@@ -273,7 +273,7 @@ export default function Masters({ data, refresh, notify }) {
               onClick={() => setActiveTab('kilns')}
               style={{ height: '34px' }}
             >
-              Kilns ({(data.kilns || []).length})
+              Kilns
             </button>
           </div>
 

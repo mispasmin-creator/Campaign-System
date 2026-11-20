@@ -648,20 +648,6 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
         </div>
 
         <div className="search-row-mobile" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="btn small"
-            onClick={handleSyncWithSheet}
-            disabled={isSyncing}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', height: '38px' }}
-            title="Synchronize latest data"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-            </svg>
-            {isSyncing ? 'Syncing...' : 'Sync'}
-          </button>
-
           <div className="search-input-wrap">
             <input
               type="search"
@@ -680,7 +666,7 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
         <div className="card-panel" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="panel-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-              Pending Shutdown Date Confirmations ({filteredPending.length})
+              Pending Shutdown Date Confirmations
             </h3>
             <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
 
@@ -713,9 +699,6 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
                   paginatedPending.map((row) => (
                     <tr
                       key={`${row.serviceOrderNo}-${row.callLogNo}`}
-                      onClick={() => setViewingRecord(row)}
-                      className="clickable-row"
-                      title="Tap to view shutdown tracking details"
                     >
                       <td>
                         <span className="cn">{row.serviceOrderNo}</span>
@@ -739,17 +722,6 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
                       <td>{row.nextCallDate ? formatDate(row.nextCallDate) : '—'}</td>
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
-                          <button
-                            type="button"
-                            className="btn small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setViewingRecord(row);
-                            }}
-                            title="View Details"
-                          >
-                            View
-                          </button>
                           <button
                             type="button"
                             className="btn primary small"
@@ -781,6 +753,9 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
             onPageChange={setPendingPage}
             onPageSizeChange={setPendingPageSize}
             pageSizeOptions={[5, 10, 20, 50, 100]}
+            searchValue={search}
+            onSearchChange={(value) => { setSearch(value); setPendingPage(1); setHistoryPage(1); }}
+            searchPlaceholder="Search order or company..."
           />
         </div>
       )}
@@ -790,7 +765,7 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
         <div className="card-panel" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="panel-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-              Shutdown Date History ({filteredHistory.length})
+              Shutdown Date History
             </h3>
             <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
               Completed calls with Call Followup Status. Confirmed shutdown orders appear in Shutdown Inspection.
@@ -887,6 +862,9 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
             onPageChange={setHistoryPage}
             onPageSizeChange={setHistoryPageSize}
             pageSizeOptions={[5, 10, 20, 50, 100]}
+            searchValue={search}
+            onSearchChange={(value) => { setSearch(value); setPendingPage(1); setHistoryPage(1); }}
+            searchPlaceholder="Search order or company..."
           />
         </div>
       )}
@@ -1151,8 +1129,8 @@ export default function TakeShutdownDatePage({ data, refresh, notify }) {
           onClose={() => setViewingRecord(null)}
           title="Shutdown Call & Date Details"
           subtitle={`Service Order: ${viewingRecord.serviceOrderNo} • Log #${viewingRecord.callLogNo}`}
-          badge={viewingRecord.callFollowupStatus?.includes('Yes') ? 'Confirmed' : viewingRecord.delayDays > 0 ? `${viewingRecord.delayDays}d Delayed` : 'Pending'}
-          badgeTone={viewingRecord.callFollowupStatus?.includes('Yes') ? 'good' : viewingRecord.delayDays > 0 ? 'bad' : 'warn'}
+          badge={cleanCallStatus(viewingRecord.callFollowupStatus || 'Pending Call')}
+          badgeTone={viewingRecord.callFollowupStatus?.includes('Yes') ? 'good' : viewingRecord.callFollowupStatus?.toLowerCase().includes('forget') ? 'warn' : 'bad'}
           items={[
             { label: 'Client Plant Company', value: viewingRecord.partyName, fullWidth: true },
             { label: 'Service Order No.', value: viewingRecord.serviceOrderNo, mono: true },

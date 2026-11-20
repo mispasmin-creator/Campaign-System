@@ -54,13 +54,6 @@ export const APP_PAGES = [
     description: 'Final sign-off, next campaign setup & closure'
   },
   {
-    id: 'masters',
-    label: 'Masters (Plants & Kilns)',
-    path: '/masters',
-    shortLabel: 'Masters',
-    description: 'Manage companies, plant locations, and kiln technical profiles'
-  },
-  {
     id: 'access',
     label: 'User & Access Control',
     path: '/access',
@@ -94,7 +87,7 @@ export const DEFAULT_USERS = [
     password: '123',
     role: 'User',
     status: 'Active',
-    access: 'dashboard, visit, take-shutdown-date, restart-process, masters',
+    access: 'dashboard, visit, take-shutdown-date, restart-process',
     lastLogin: ''
   }
 ];
@@ -146,6 +139,10 @@ export function hasPageAccess(user, pageIdOrPath) {
       const match = list.some(
         (item) =>
           item === page.id.toLowerCase() ||
+          item === `view:${page.id.toLowerCase()}` ||
+          item === `full:${page.id.toLowerCase()}` ||
+          item === `view-${page.id.toLowerCase()}` ||
+          item === `full-${page.id.toLowerCase()}` ||
           item === page.shortLabel.toLowerCase() ||
           item === page.label.toLowerCase() ||
           item === page.path.toLowerCase()
@@ -162,12 +159,32 @@ export function hasPageAccess(user, pageIdOrPath) {
       return ['dashboard', 'running', 'take-shutdown-date', 'shutdown-inspection'].includes(targetId);
     }
     if (roleLower.includes('sales') || roleLower.includes('co-ordinator') || roleLower.includes('coordinator')) {
-      return ['dashboard', 'visit', 'take-shutdown-date', 'restart-process', 'masters'].includes(targetId);
+      return ['dashboard', 'visit', 'take-shutdown-date', 'restart-process'].includes(targetId);
     }
     return targetId === 'dashboard';
   }
 
   return false;
+}
+
+/** Returns the configured permission level for a page: none, view, or full. */
+export function getPageAccessLevel(user, pageIdOrPath) {
+  if (!user) return 'none';
+  const roleLower = String(user.role || '').toLowerCase();
+  if (roleLower === 'admin' || roleLower === 'administrator') return 'full';
+
+  const page = APP_PAGES.find((p) => p.id === pageIdOrPath || p.path === pageIdOrPath);
+  const pageId = page ? page.id : String(pageIdOrPath || '').replace(/^\//, '').toLowerCase();
+  const rawAccess = String(user.access || '').trim();
+  if (!rawAccess || rawAccess.toLowerCase() === 'none') return 'none';
+  if (rawAccess.toLowerCase() === 'all' || rawAccess === '*') return 'full';
+
+  const entries = rawAccess.split(',').map((item) => item.trim().toLowerCase());
+  if (entries.includes(`full:${pageId}`) || entries.includes(`full-${pageId}`)) return 'full';
+  if (entries.includes(`view:${pageId}`) || entries.includes(`view-${pageId}`)) return 'view';
+  // Backward compatibility: old entries such as "dashboard" meant full access.
+  if (entries.includes(pageId)) return 'full';
+  return 'none';
 }
 
 /**

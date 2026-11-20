@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { formatDate } from '../utils/workflow';
 import { syncFollowupCallToGoogleSheet } from '../services/googleSheets';
 import CustomSelect from '../components/CustomSelect';
+import Pagination from '../components/Pagination';
 
 export default function FollowupShutdownPage({ data, refresh, notify }) {
   const [search, setSearch] = useState('');
   const [outcomeFilter, setOutcomeFilter] = useState('');
   const [designationFilter, setDesignationFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const callLogs = data.callLogs || [];
@@ -42,6 +45,11 @@ export default function FollowupShutdownPage({ data, refresh, notify }) {
 
     return matchSearch && matchOutcome && matchDesignation;
   });
+  const paginatedLogs = filteredLogs.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, outcomeFilter, designationFilter]);
 
   const formatDateTime = (iso) => {
     if (!iso) return '—';
@@ -106,6 +114,7 @@ export default function FollowupShutdownPage({ data, refresh, notify }) {
           <button
             type="button"
             className="btn small"
+            hidden
             onClick={handleSyncToSheet}
             disabled={isSyncing}
             style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -245,7 +254,7 @@ export default function FollowupShutdownPage({ data, refresh, notify }) {
       <div className="card-panel" style={{ padding: 0, overflow: 'hidden' }}>
         <div className="panel-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-            Followup Logs ({filteredLogs.length})
+            Followup Logs
           </h3>
           <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
             Chronological call records logged by inspector / coordinator
@@ -275,7 +284,7 @@ export default function FollowupShutdownPage({ data, refresh, notify }) {
                   </td>
                 </tr>
               ) : (
-                filteredLogs.map((log, idx) => (
+                paginatedLogs.map((log, idx) => (
                   <tr key={idx}>
                     <td style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
                       {formatDateTime(log.timestamp)}
@@ -340,6 +349,17 @@ export default function FollowupShutdownPage({ data, refresh, notify }) {
             </tbody>
           </table>
         </div>
+        <Pagination
+          totalItems={filteredLogs.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[5, 10, 20, 50, 100]}
+          searchValue={search}
+          onSearchChange={(value) => { setSearch(value); setPage(1); }}
+          searchPlaceholder="Search order or company..."
+        />
       </div>
     </div>
   );

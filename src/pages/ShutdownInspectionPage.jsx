@@ -5,7 +5,45 @@ import { saveData, resizeImage } from '../services/storage';
 import { syncStepToGoogleSheet, syncStepChangesFromSheet } from '../services/googleSheets';
 import CustomSelect from '../components/CustomSelect';
 import Pagination from '../components/Pagination';
-import DetailModal from '../components/DetailModal';
+import DetailModal, { getDriveImageFullUrl, getDriveImagePreview } from '../components/DetailModal';
+
+function ZonePhotoTile({ img, index }) {
+  const [isAvailable, setIsAvailable] = useState(true);
+  const [imageSrc, setImageSrc] = useState(() => getDriveImagePreview(img));
+  if (!isAvailable) return null;
+
+  const fullUrl = getDriveImageFullUrl(img);
+
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <a
+        href={fullUrl}
+        target="_blank"
+        rel="noreferrer"
+        title={`Open Zone ${index + 1} full image`}
+        style={{ display: 'block', cursor: 'zoom-in' }}
+      >
+        <img
+          src={imageSrc}
+          alt={`Zone ${index + 1}`}
+          style={{ width: '100%', height: '150px', objectFit: 'contain', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface-inset)' }}
+          onError={() => {
+            // Some Drive files reject the thumbnail endpoint but allow the
+            // full image endpoint. Try that before removing the tile.
+            if (imageSrc !== fullUrl) {
+              setImageSrc(fullUrl);
+            } else {
+              setIsAvailable(false);
+            }
+          }}
+        />
+      </a>
+      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+        Zone {index + 1}
+      </span>
+    </div>
+  );
+}
 
 export default function ShutdownInspectionPage({ data, refresh, notify }) {
   const [searchParams] = useSearchParams();
@@ -17,6 +55,7 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
 
   // View Details Modal State
   const [viewingShutdown, setViewingShutdown] = useState(null);
+  const [viewingZoneDistances, setViewingZoneDistances] = useState(null);
 
   // Pagination states
   const [pendingPage, setPendingPage] = useState(1);
@@ -29,6 +68,8 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
   const [editingShutdown, setEditingShutdown] = useState(null);
   const [editInspector, setEditInspector] = useState('');
   const [editAvgThickness, setEditAvgThickness] = useState('');
+  const [editZoneDistances, setEditZoneDistances] = useState(Array(9).fill(''));
+  const [editZonePhotos, setEditZonePhotos] = useState(Array(9).fill(''));
   const [editInspectionDate, setEditInspectionDate] = useState('');
   const [editNextCampaignDate, setEditNextCampaignDate] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
@@ -339,6 +380,24 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
     setEditAvgThickness(row.avgThickness || '');
     setEditInspectionDate(row.inspectionDate || todayISO());
     setEditNextCampaignDate(row.nextCampaignStartDate || '');
+    setEditZoneDistances(Array.from({ length: 9 }, (_, index) =>
+      (row.zoneDistances || row.zoneThickness || [])[index] ?? ''
+    ));
+    setEditZonePhotos(Array.from({ length: 9 }, (_, index) =>
+      (row.zonePhotos || [])[index] || ''
+    ));
+  };
+
+  const handleEditPhotoUpload = async (index, file) => {
+    if (!file) return;
+    try {
+      const compressed = await resizeImage(file, 800);
+      const updated = [...editZonePhotos];
+      updated[index] = compressed;
+      setEditZonePhotos(updated);
+    } catch (err) {
+      notify(`Failed to upload photo for Zone ${index + 1}: ${err.message}`, 'bad');
+    }
   };
 
   const handleSaveEdit = async (e) => {
@@ -353,6 +412,9 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
         s.avgThickness = editAvgThickness.trim();
         s.inspectionDate = editInspectionDate;
         s.nextCampaignStartDate = editNextCampaignDate;
+        s.zoneThickness = editZoneDistances.map((value) => value === '' ? null : Number(value));
+        s.zoneDistances = s.zoneThickness;
+        s.zonePhotos = editZonePhotos;
       }
 
       // Sync specific edited record to Google Sheet immediately (Protected: NEVER send Planned or Delay!)
@@ -362,8 +424,8 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
         inspectionDate: editInspectionDate,
         avgThickness: editAvgThickness.trim(),
         inspector: editInspector.trim(),
-        zoneThickness: editingShutdown.zoneThickness || editingShutdown.zoneDistances || [],
-        zonePhotos: editingShutdown.zonePhotos || [],
+        zoneThickness: editZoneDistances.map((value) => value === '' ? null : Number(value)),
+        zonePhotos: editZonePhotos,
         nextCampaignStartDate: editNextCampaignDate
       });
 
@@ -436,20 +498,6 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
         </div>
 
         <div className="search-row-mobile" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="btn small"
-            onClick={handleSyncWithSheet}
-            disabled={isSyncing}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', height: '38px' }}
-            title="Synchronize latest data"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-            </svg>
-            {isSyncing ? 'Syncing...' : 'Sync'}
-          </button>
-
           <div className="search-input-wrap">
             <input
               type="search"
@@ -468,7 +516,7 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
         <div className="card-panel" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="panel-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-              Pending Shutdown Inspections ({filteredPending.length})
+              Pending Shutdown Inspections
             </h3>
             <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
               Orders with confirmed shutdown dates awaiting on-site refractory inspection
@@ -501,9 +549,6 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
                   paginatedPending.map((row) => (
                     <tr
                       key={row.serviceOrderNo}
-                      onClick={() => setViewingShutdown(row)}
-                      className="clickable-row"
-                      title="Tap to view shutdown details"
                     >
                       <td>
                         <span className="cn">{row.serviceOrderNo}</span>
@@ -564,6 +609,9 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
             onPageChange={setPendingPage}
             onPageSizeChange={setPendingPageSize}
             pageSizeOptions={[5, 10, 20, 50, 100]}
+            searchValue={search}
+            onSearchChange={(value) => { setSearch(value); setPendingPage(1); setHistoryPage(1); }}
+            searchPlaceholder="Search order or company..."
           />
         </div>
       )}
@@ -573,7 +621,7 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
         <div className="card-panel" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="panel-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-              Shutdown Inspection History ({filteredHistory.length})
+              Shutdown Inspection History
             </h3>
             <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
               Completed refractory distance inspections and campaign completion records
@@ -589,7 +637,7 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
                   <th>What</th>
                   <th>Inspection Date</th>
                   <th>Inspector Incharge</th>
-                  <th>Avg Distance (mm)</th>
+                  <th>9 Zone Distances</th>
                   <th>Zones with Photos</th>
                   <th>New Campaign Start Date</th>
                   <th style={{ width: '80px', textAlign: 'center' }}>Action</th>
@@ -605,7 +653,9 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
                 ) : (
                   paginatedHistory.map((row, idx) => {
                     const photosCount = (row.zonePhotos || []).filter(Boolean).length;
-                    const isThin = row.avgThickness && row.avgThickness < 160;
+                    const zoneDistanceCount = (row.zoneDistances || row.zoneThickness || []).filter(
+                      (value) => value !== undefined && value !== null && String(value).trim() !== ''
+                    ).length;
 
                     return (
                       <tr
@@ -630,7 +680,24 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
                         <td>{formatDate(row.inspectionDate)}</td>
                         <td>{row.inspector}</td>
                         <td>
-                          {row.avgThickness ? (
+                          {zoneDistanceCount > 0 ? (
+                            <button
+                              type="button"
+                              className="btn small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setViewingZoneDistances(row);
+                              }}
+                              style={{ padding: '3px 8px', fontSize: '11.5px', background: 'var(--surface-subtle)' }}
+                            >
+                              View 9 zones
+                            </button>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>No readings</span>
+                          )}
+                        </td>
+                        <td style={{ display: 'none' }}>
+                          {false ? (
                             <span
                               className={`pill ${isThin ? 'bad' : 'good'}`}
                               style={{ fontWeight: 700, fontFamily: 'var(--f-mono)' }}
@@ -711,6 +778,9 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
             onPageChange={setHistoryPage}
             onPageSizeChange={setHistoryPageSize}
             pageSizeOptions={[5, 10, 20, 50, 100]}
+            searchValue={search}
+            onSearchChange={(value) => { setSearch(value); setPendingPage(1); setHistoryPage(1); }}
+            searchPlaceholder="Search order or company..."
           />
         </div>
       )}
@@ -814,12 +884,6 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
                       <label style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text)' }}>
                         Distances Between Refractory (Zone 1 to Zone 9 in mm)
                       </label>
-                      <span
-                        className={`pill ${liveAvgDistance > 0 && liveAvgDistance < 160 ? 'bad' : 'good'}`}
-                        style={{ fontFamily: 'var(--f-mono)', fontWeight: 700 }}
-                      >
-                        Avg Distance: {liveAvgDistance} mm {liveAvgDistance > 0 && liveAvgDistance < 160 ? '• Critical (<160mm)' : ''}
-                      </span>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
@@ -1016,18 +1080,7 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '12px' }}>
               {(selectedPhotoModal.zonePhotos || []).map((img, idx) =>
-                img ? (
-                  <div key={idx} style={{ textAlign: 'center' }}>
-                    <img
-                      src={img}
-                      alt={`Zone ${idx + 1}`}
-                      style={{ width: '100%', height: '110px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border)' }}
-                    />
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
-                      Zone {idx + 1}
-                    </span>
-                  </div>
-                ) : null
+                img ? <ZonePhotoTile key={idx} img={img} index={idx} /> : null
               )}
             </div>
           </div>
@@ -1096,6 +1149,54 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
                 </div>
               </div>
 
+              <div className="field" style={{ marginTop: '12px' }}>
+                <label>Distances Between Refractory — Zone 1 to Zone 9 (mm)</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                  {editZoneDistances.map((distance, index) => (
+                    <input
+                      key={index}
+                      type="number"
+                      min="0"
+                      value={distance}
+                      onChange={(e) => {
+                        const updated = [...editZoneDistances];
+                        updated[index] = e.target.value;
+                        setEditZoneDistances(updated);
+                      }}
+                      placeholder={`Zone ${index + 1}`}
+                      aria-label={`Zone ${index + 1} distance`}
+                      className="input-text"
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="field" style={{ marginTop: '12px' }}>
+                <label>Zone Photos 1 to 9</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                  {editZonePhotos.map((photo, index) => (
+                    <div key={index} style={{ border: '1px dashed var(--border)', borderRadius: '8px', padding: '6px', textAlign: 'center' }}>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                        Zone {index + 1}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleEditPhotoUpload(index, e.target.files?.[0])}
+                          style={{ display: 'block', width: '100%', marginTop: '4px', fontSize: '10px' }}
+                        />
+                      </label>
+                      {photo && (
+                        <img
+                          src={getDriveImagePreview(photo)}
+                          alt={`Zone ${index + 1}`}
+                          style={{ width: '100%', height: '54px', objectFit: 'cover', borderRadius: '4px' }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="field">
                 <label>Next Campaign Starting Date</label>
                 <input
@@ -1120,6 +1221,22 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
       )}
 
       {/* VIEW DETAILS MODAL */}
+      {viewingZoneDistances && (
+        <DetailModal
+          isOpen={!!viewingZoneDistances}
+          onClose={() => setViewingZoneDistances(null)}
+          title="9 Zone Distances"
+          subtitle={`Service Order: ${viewingZoneDistances.serviceOrderNo || 'N/A'}`}
+          items={[]}
+          readings={{
+            title: 'Zone 1-9 Refractory Thickness / Wear (mm)',
+            unit: 'mm',
+            values: viewingZoneDistances.zoneDistances || viewingZoneDistances.zoneThickness || []
+          }}
+        />
+      )}
+
+      {/* VIEW DETAILS MODAL */}
       {viewingShutdown && (
         <DetailModal
           isOpen={!!viewingShutdown}
@@ -1135,7 +1252,6 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
             { label: 'Inspection Status', value: viewingShutdown.what || 'Pending' },
             { label: 'Inspection Date', value: formatDate(viewingShutdown.inspectionDate || viewingShutdown.confirmedShutdownDate || viewingShutdown.plannedDate) },
             { label: 'Inspector Name', value: viewingShutdown.inspector || '—' },
-            { label: 'Avg Refractory Wear', value: viewingShutdown.avgThickness ? `${viewingShutdown.avgThickness} mm` : '—', mono: true },
             { label: 'Next Campaign Start Date', value: formatDate(viewingShutdown.nextCampaignStartDate) },
             ...(viewingShutdown.delayDays !== undefined ? [{
               label: 'Schedule Delay',
@@ -1148,9 +1264,7 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
             unit: 'mm',
             values: viewingShutdown.zoneDistances
           } : null}
-          photoUrl={
-            (viewingShutdown.zonePhotos || []).find(Boolean) || null
-          }
+          photoUrls={viewingShutdown.zonePhotos || []}
           onEdit={viewingShutdown.avgThickness ? () => {
             const item = viewingShutdown;
             setViewingShutdown(null);

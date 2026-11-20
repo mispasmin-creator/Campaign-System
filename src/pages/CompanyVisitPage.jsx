@@ -401,20 +401,6 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
           </div>
 
           <div className="search-row-mobile" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="btn small"
-              onClick={handleSyncWithSheet}
-              disabled={isSyncing}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              title="Synchronize latest data"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-              </svg>
-              {isSyncing ? 'Syncing...' : 'Sync'}
-            </button>
-
             <div className="search-input-wrap">
               <input
                 type="search"
@@ -431,7 +417,7 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
       {/* TABLE: SUBMIT HOTE HI DATA SHOW HOGA */}
       <div className="card-panel">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-          <h2 style={{ margin: 0 }}>Company Visit Records ({visitsList.length})</h2>
+          <h2 style={{ margin: 0 }}>Company Visit Records</h2>
         </div>
 
         <div className="tablewrap">
@@ -557,6 +543,9 @@ export default function CompanyVisitPage({ data, refresh, notify }) {
           onPageChange={setPage}
           onPageSizeChange={setPageSize}
           pageSizeOptions={[5, 10, 20, 50, 100]}
+          searchValue={search}
+          onSearchChange={(value) => { setSearch(value); setPage(1); }}
+          searchPlaceholder="Search company or order..."
         />
       </div>
 

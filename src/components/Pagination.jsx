@@ -59,6 +59,9 @@ export default function Pagination({
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
+        width: '100%',
+        boxSizing: 'border-box',
+        overflow: 'visible',
         gap: '12px',
         padding: '12px 14px',
         borderTop: '1px solid var(--border)',
@@ -69,7 +72,7 @@ export default function Pagination({
       }}
     >
       {/* Left: Rows Per Page & Item Count */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span>Rows per page:</span>
           <select
@@ -84,9 +87,17 @@ export default function Pagination({
               padding: '4px 8px',
               fontSize: '12px',
               fontWeight: 600,
-              width: 'auto',
+              width: '52px',
+              minWidth: '52px',
+              paddingRight: '20px',
               borderRadius: '6px',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23116B60' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\")",
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 5px center',
+              backgroundSize: '14px 14px'
             }}
           >
             {pageSizeOptions.map((opt) => (
@@ -103,7 +114,7 @@ export default function Pagination({
       </div>
 
       {/* Right: Navigation Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', flexWrap: 'wrap', maxWidth: '100%' }}>
         {/* Previous Button */}
         <button
           type="button"

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SummaryStrip from '../components/SummaryStrip';
 import { formatDate, calendarDaysDiff, todayISO } from '../utils/workflow';
 import CustomSelect from '../components/CustomSelect';
 import DetailModal from '../components/DetailModal';
+import Pagination from '../components/Pagination';
 
 const LINE_COLORS = ['#14B8A6', '#8B5CF6', '#EC4899', '#06B6D4', '#F59E0B', '#10B981'];
 
@@ -18,6 +19,9 @@ export default function CampaignDashboard({ data }) {
 
   // View Details Modal State
   const [viewingCampaign, setViewingCampaign] = useState(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(10);
+  const [campaignSearch, setCampaignSearch] = useState('');
 
   // Look up matching kiln
   const activeKiln = companyKilns.find((k) => k.kilnNo.toString() === selectedKilnNo.toString()) || companyKilns[0];
@@ -88,6 +92,18 @@ export default function CampaignDashboard({ data }) {
       ];
 
   const lastCamp = activeCampaigns[activeCampaigns.length - 1];
+  const filteredHistoricalCampaigns = activeCampaigns.filter((campaign) => {
+    const query = campaignSearch.trim().toLowerCase();
+    if (!query) return true;
+    return String(campaign.no || '').toLowerCase().includes(query)
+      || String(campaign.status || '').toLowerCase().includes(query)
+      || String(campaign.start || '').toLowerCase().includes(query);
+  });
+  const paginatedCampaigns = filteredHistoricalCampaigns.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [selectedCompanyId, selectedKilnNo, campaignSearch]);
   const lastThick = lastCamp.thick || [];
   const avgThickness = lastThick.length
     ? (lastThick.reduce((a, b) => a + Number(b), 0) / lastThick.length).toFixed(0)
@@ -402,7 +418,17 @@ export default function CampaignDashboard({ data }) {
 
       {/* HISTORICAL COMPARISON TABLE */}
       <div className="card-panel">
-        <h2 style={{ marginBottom: '14px' }}>Historical Campaign Records & Comparison</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <h2 style={{ margin: 0 }}>Historical Campaign Records & Comparison</h2>
+          <input
+            type="search"
+            value={campaignSearch}
+            onChange={(e) => setCampaignSearch(e.target.value)}
+            placeholder="Search campaign history..."
+            className="input-text"
+            style={{ width: '240px', maxWidth: '100%' }}
+          />
+        </div>
         <div className="tablewrap">
           <table>
             <thead>
@@ -417,7 +443,7 @@ export default function CampaignDashboard({ data }) {
               </tr>
             </thead>
             <tbody>
-              {activeCampaigns.map((c, idx) => {
+              {paginatedCampaigns.map((c, idx) => {
                 const thickArr = c.thick || [];
                 const tempArr = c.temp || [];
                 const avgThick = thickArr.length
@@ -458,6 +484,17 @@ export default function CampaignDashboard({ data }) {
             </tbody>
           </table>
         </div>
+        <Pagination
+          totalItems={filteredHistoricalCampaigns.length}
+          page={historyPage}
+          pageSize={historyPageSize}
+          onPageChange={setHistoryPage}
+          onPageSizeChange={(size) => { setHistoryPageSize(size); setHistoryPage(1); }}
+          pageSizeOptions={[5, 10, 20, 50]}
+          searchValue={campaignSearch}
+          onSearchChange={(value) => { setCampaignSearch(value); setHistoryPage(1); }}
+          searchPlaceholder="Search campaigns..."
+        />
       </div>
 
       {/* VIEW CAMPAIGN DETAILS POPUP MODAL */}

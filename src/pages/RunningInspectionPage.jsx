@@ -581,20 +581,6 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
           </div>
 
           <div className="search-row-mobile" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="btn small"
-              onClick={handleSyncWithSheet}
-              disabled={isSyncing}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              title="Synchronize latest data"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-              </svg>
-              {isSyncing ? 'Syncing...' : 'Sync'}
-            </button>
-
             <div className="search-input-wrap">
               <input
                 type="search"
@@ -612,7 +598,7 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
       {activeTab === 'pending' && (
         <div className="card-panel">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <h2 style={{ margin: 0 }}>Company Visits Awaiting Running Inspection ({filteredPending.length})</h2>
+            <h2 style={{ margin: 0 }}>Company Visits Awaiting Running Inspection</h2>
             <span className="pill warn">Action Required</span>
           </div>
 
@@ -644,9 +630,6 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
                     return (
                       <tr
                         key={row.serviceOrderNo}
-                        onClick={() => setViewingInspection(row)}
-                        className="clickable-row"
-                        title="Tap to view inspection details"
                       >
                         <td>
                           <b className="cn">{row.serviceOrderNo}</b>
@@ -695,6 +678,9 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
             onPageChange={setPendingPage}
             onPageSizeChange={setPendingPageSize}
             pageSizeOptions={[5, 10, 20, 50, 100]}
+            searchValue={search}
+            onSearchChange={(value) => { setSearch(value); setPendingPage(1); setHistoryPage(1); }}
+            searchPlaceholder="Search order or company..."
           />
         </div>
       )}
@@ -703,11 +689,12 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
       {activeTab === 'history' && (
         <div className="card-panel">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-            <h2 style={{ margin: 0 }}>Completed Running Inspections History ({filteredHistory.length})</h2>
+            <h2 style={{ margin: 0 }}>Completed Running Inspections History</h2>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
                 type="button"
                 className="btn small"
+                hidden
                 onClick={handleSyncHistoryToSheet}
                 disabled={isSyncing}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
@@ -853,6 +840,9 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
             onPageChange={setHistoryPage}
             onPageSizeChange={setHistoryPageSize}
             pageSizeOptions={[5, 10, 20, 50, 100]}
+            searchValue={search}
+            onSearchChange={(value) => { setSearch(value); setPendingPage(1); setHistoryPage(1); }}
+            searchPlaceholder="Search order or company..."
           />
         </div>
       )}
@@ -1250,7 +1240,9 @@ export default function RunningInspectionPage({ data, refresh, notify }) {
           title="Running Kiln Inspection Details"
           subtitle={`Service Order: ${viewingInspection.serviceOrderNo || 'N/A'}`}
           badge={viewingInspection.avgTemp ? `Avg: ${viewingInspection.avgTemp} °C` : (viewingInspection.status || 'Pending')}
-          badgeTone={viewingInspection.avgTemp ? 'good' : 'bad'}
+          badgeTone={viewingInspection.status === 'Done' ? 'good' : 'bad'}
+          hideBadge
+          hiddenItemLabels={['Company / Party', 'Kiln No. & Size', 'Campaign No.', 'Campaign Start Date']}
           items={[
             { label: 'Company / Party', value: viewingInspection.partyName },
             { label: 'Kiln No. & Size', value: `Kiln ${viewingInspection.kilnNo || '—'} (${viewingInspection.kilnSize || '—'})`, mono: true },
