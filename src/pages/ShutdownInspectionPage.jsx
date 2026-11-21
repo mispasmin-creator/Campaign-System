@@ -1253,11 +1253,6 @@ export default function ShutdownInspectionPage({ data, refresh, notify }) {
             { label: 'Inspection Date', value: formatDate(viewingShutdown.inspectionDate || viewingShutdown.confirmedShutdownDate || viewingShutdown.plannedDate) },
             { label: 'Inspector Name', value: viewingShutdown.inspector || '—' },
             { label: 'Next Campaign Start Date', value: formatDate(viewingShutdown.nextCampaignStartDate) },
-            ...(viewingShutdown.delayDays !== undefined ? [{
-              label: 'Schedule Delay',
-              value: viewingShutdown.delayDays > 0 ? `${viewingShutdown.delayDays} days late` : 'On track',
-              mono: true
-            }] : [])
           ]}
           readings={viewingShutdown.zoneDistances ? {
             title: 'Zone 1-9 Refractory Thickness / Wear (mm)',
