@@ -44,8 +44,8 @@ export default function CampaignDashboard({ data }) {
       no: h.campaignNo,
       start: h.startDate,
       days: h.daysRun,
-      thick: h.thickness || [200, 195, 190, 185, 175, 168, 178, 188, 195],
-      temp: h.temp || [150, 190, 185, 215, 225, 240, 265, 210, 180],
+      thick: Array.isArray(h.thickness) ? h.thickness : [],
+      temp: Array.isArray(h.temp) ? h.temp : [],
       status: h.status || 'Closed'
     });
   });
@@ -56,8 +56,12 @@ export default function CampaignDashboard({ data }) {
     const run = (data.runningInspections || []).find((r) => r.serviceOrderNo === o.serviceOrderNo);
     const daysRun = calendarDaysDiff(o.campaignStartDate, o.shutdownDate || todayISO());
 
-    const thickValues = shut?.zoneThickness?.map(Number) || [198, 194, 184, 172, 158, 150, 166, 180, 192];
-    const tempValues = run?.zoneTemps?.filter((v) => v !== null).map(Number) || [170, 208, 205, 244, 248, 263, 295, 224, 190];
+    const thickValues = Array.isArray(shut?.zoneThickness)
+      ? shut.zoneThickness.filter((v) => v !== null && v !== '').map(Number).filter(Number.isFinite)
+      : [];
+    const tempValues = Array.isArray(run?.zoneTemps)
+      ? run.zoneTemps.filter((v) => v !== null && v !== '').map(Number).filter(Number.isFinite)
+      : [];
 
     combinedCampaigns.push({
       no: o.campaignNo,
@@ -69,29 +73,13 @@ export default function CampaignDashboard({ data }) {
     });
   });
 
-  // Fallback sample campaigns if brand new kiln has none
-  const activeCampaigns = combinedCampaigns.length
-    ? combinedCampaigns
-    : [
-        {
-          no: '1',
-          start: '2026-01-10',
-          days: 168,
-          thick: [200, 200, 195, 190, 185, 180, 190, 195, 200],
-          temp: [150, 190, 185, 215, 225, 240, 265, 210, 180],
-          status: 'Closed'
-        },
-        {
-          no: '2',
-          start: '2026-07-02',
-          days: 181,
-          thick: [200, 198, 190, 182, 170, 165, 178, 188, 196],
-          temp: [160, 200, 195, 225, 235, 255, 280, 215, 185],
-          status: 'Active running'
-        }
-      ];
+  // A new company/kiln has no readings until an inspection is submitted.
+  // Never render demo readings for an empty selection.
+  const activeCampaigns = combinedCampaigns;
 
-  const lastCamp = activeCampaigns[activeCampaigns.length - 1];
+  const lastCamp = activeCampaigns[activeCampaigns.length - 1] || {
+    no: '—', days: null, thick: [], temp: [], status: 'No data'
+  };
   const filteredHistoricalCampaigns = activeCampaigns.filter((campaign) => {
     const query = campaignSearch.trim().toLowerCase();
     if (!query) return true;
@@ -105,21 +93,22 @@ export default function CampaignDashboard({ data }) {
     setHistoryPage(1);
   }, [selectedCompanyId, selectedKilnNo, campaignSearch]);
   const lastThick = lastCamp.thick || [];
+  const lastValues = mode === 'thick' ? lastCamp.thick || [] : lastCamp.temp || [];
   const avgThickness = lastThick.length
     ? (lastThick.reduce((a, b) => a + Number(b), 0) / lastThick.length).toFixed(0)
-    : '0';
+    : '—';
   const worstThickness = lastThick.length ? Math.min(...lastThick) : 0;
   const worstZoneIndex = lastThick.indexOf(worstThickness);
 
   // Summary strip statistics
   const summaryStats = [
     { label: 'Campaigns Tracked', value: activeCampaigns.length },
-    { label: 'Latest Campaign Run', value: `${lastCamp.days} d` },
+    { label: 'Latest Campaign Run', value: lastCamp.days ? `${lastCamp.days} d` : '—' },
     { label: 'Avg Refractory Thickness', value: `${avgThickness} mm` },
     {
-      label: `Thinnest Zone (Z${worstZoneIndex + 1})`,
-      value: `${worstThickness} mm`,
-      tone: worstThickness < 160 ? 'bad' : ''
+      label: lastThick.length ? `Thinnest Zone (Z${worstZoneIndex + 1})` : 'Thinnest Zone',
+      value: lastThick.length ? `${worstThickness} mm` : '—',
+      tone: lastThick.length && worstThickness < 160 ? 'bad' : ''
     }
   ];
 
@@ -361,11 +350,15 @@ export default function CampaignDashboard({ data }) {
         <div className="card-panel">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
             <h2 style={{ margin: 0 }}>Latest Readings (Camp. {lastCamp.no})</h2>
-            <span className="pill good">{lastCamp.days} days active</span>
+            <span className="pill good">{lastCamp.days ? `${lastCamp.days} days active` : 'No readings'}</span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {lastThick.map((val, i) => {
+            {lastValues.length === 0 ? (
+              <div style={{ padding: '24px 8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                No {mode === 'thick' ? 'thickness' : 'temperature'} readings submitted for this campaign yet.
+              </div>
+            ) : lastValues.map((val, i) => {
               const numVal = Number(val);
               // CRITICAL SPEC: Threshold below 160 mm highlighted RED only for thickness, NEVER for temperature
               const isDanger = mode === 'thick' && numVal < 160;

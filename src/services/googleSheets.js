@@ -1029,7 +1029,7 @@ export function buildAppDataFromSheetRows(sheetRows, currentData = {}, followupR
       const rawZones = runningDetail.zoneTemps || existingRunning?.zoneTemps || existingRunning?.zones;
       const zoneTemps = (Array.isArray(rawZones) && rawZones.some((v) => v !== null && v !== ''))
         ? rawZones
-        : (existingRunning?.zoneTemps || existingRunning?.zones || [175, 175, 175, 175, 175, 175, 175, 175, 175]);
+        : (existingRunning?.zoneTemps || existingRunning?.zones || []);
       const daysSinceStart = (runningDetail.daysSinceStart !== undefined && runningDetail.daysSinceStart !== '')
         ? runningDetail.daysSinceStart
         : (row.daysSinceStart !== undefined && row.daysSinceStart !== ''
