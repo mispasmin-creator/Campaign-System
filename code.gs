@@ -390,6 +390,86 @@ function saveFollowupToDedicatedSheet(ss, serviceOrderNo, data, now) {
   return row;
 }
 
+function getLoginSheet(ss) {
+  var sheet = ss.getSheetByName('Login') || ss.getSheetByName('Login Page');
+  if (!sheet) {
+    sheet = ss.insertSheet('Login');
+    sheet.getRange(1, 1, 1, 7).setValues([['User ID', 'Name', 'Password', 'Role', 'Status', 'Access', 'Last Login']]);
+    sheet.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#E8F0FE');
+  }
+  return sheet;
+}
+
+function handleLoginWriteAction(ss, payload) {
+  var action = String(payload.action || '').trim().toLowerCase();
+  if (action !== 'adduser' && action !== 'updateuser' && action !== 'updateuseraccess' && action !== 'recordlogin' && action !== 'login') {
+    return null;
+  }
+
+  var sheet = getLoginSheet(ss);
+  var lastRow = sheet.getLastRow();
+  var nowText = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
+
+  if (action === 'adduser') {
+    var newUser = payload.userData || payload;
+    var userId = String(newUser.userId || '').trim();
+    var name = String(newUser.name || '').trim();
+    if (!userId || !name) throw new Error('userId and name are required');
+
+    if (lastRow >= 2) {
+      var existingRows = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (var i = 0; i < existingRows.length; i++) {
+        if (String(existingRows[i][0] || '').trim().toLowerCase() === userId.toLowerCase()) {
+          throw new Error('User ID already exists: ' + userId);
+        }
+      }
+    }
+
+    sheet.appendRow([
+      userId,
+      name,
+      String(newUser.password || '').trim(),
+      String(newUser.role || 'User').trim(),
+      String(newUser.status || 'Active').trim(),
+      String(newUser.access || 'All').trim(),
+      ''
+    ]);
+    SpreadsheetApp.flush();
+    return { status: 'success', action: 'user_added', userId: userId };
+  }
+
+  var target = String(payload.userId || payload.username || payload.name || '').trim().toLowerCase();
+  if (!target) throw new Error('userId is required');
+  if (lastRow < 2) throw new Error('No users exist in Login sheet');
+
+  var rows = sheet.getRange(2, 1, lastRow - 1, 7).getValues();
+  var targetRow = -1;
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    var rowUserId = String(rows[rowIndex][0] || '').trim().toLowerCase();
+    var rowName = String(rows[rowIndex][1] || '').trim().toLowerCase();
+    if (rowUserId === target || rowName === target) {
+      targetRow = rowIndex + 2;
+      break;
+    }
+  }
+  if (targetRow === -1) throw new Error('User not found: ' + target);
+
+  if (action === 'recordlogin' || action === 'login') {
+    sheet.getRange(targetRow, 7).setValue(nowText);
+    SpreadsheetApp.flush();
+    return { status: 'success', action: 'login_recorded' };
+  }
+
+  var updated = payload.userData || payload;
+  if (updated.name !== undefined) sheet.getRange(targetRow, 2).setValue(String(updated.name || '').trim());
+  if (updated.password !== undefined) sheet.getRange(targetRow, 3).setValue(String(updated.password || '').trim());
+  if (updated.role !== undefined) sheet.getRange(targetRow, 4).setValue(String(updated.role || 'User').trim());
+  if (updated.status !== undefined) sheet.getRange(targetRow, 5).setValue(String(updated.status || 'Active').trim());
+  if (updated.access !== undefined) sheet.getRange(targetRow, 6).setValue(String(updated.access || '').trim());
+  SpreadsheetApp.flush();
+  return { status: 'success', action: 'user_updated', userId: target };
+}
+
 function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.tryLock(10000);
@@ -397,6 +477,12 @@ function doPost(e) {
     var payload = {};
     if (e && e.postData && e.postData.contents) {
       payload = JSON.parse(e.postData.contents);
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var loginWriteResult = handleLoginWriteAction(ss, payload);
+    if (loginWriteResult) {
+      return jsonResponse(loginWriteResult);
     }
     
     var step = payload.step;
@@ -408,7 +494,6 @@ function doPost(e) {
       throw new Error('serviceOrderNo is required');
     }
     
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName('FMS') || ss.getActiveSheet();
     
     var row = findRowByServiceOrder(sheet, serviceOrderNo);

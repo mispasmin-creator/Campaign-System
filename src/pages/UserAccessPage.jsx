@@ -60,13 +60,17 @@ export default function UserAccessPage({ notify }) {
     try {
       const liveUsers = await fetchUsersFromGoogleSheet();
       if (Array.isArray(liveUsers)) {
-        setUsersList(liveUsers.map((user) => ({ ...user, role: normalizeUserRole(user.role) })));
+        const normalizedUsers = liveUsers.map((user) => ({ ...user, role: normalizeUserRole(user.role) }));
+        setUsersList(normalizedUsers);
+        return normalizedUsers;
       } else {
         setUsersList([]);
+        return [];
       }
     } catch (err) {
       console.warn('[UserAccessPage] Error loading users:', err);
       setUsersList([]);
+      return [];
     } finally {
       setIsLoading(false);
     }
@@ -220,7 +224,16 @@ export default function UserAccessPage({ notify }) {
 
     try {
       await addUserToGoogleSheet(userData);
-      setUsersList((prev) => [...prev, userData]);
+      // no-cors cannot expose the Apps Script response, so confirm persistence
+      // by reading the Login tab again before showing success.
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      const refreshedUsers = await loadUsers();
+      const savedUser = refreshedUsers.find(
+        (user) => String(user.userId || '').toLowerCase() === userData.userId.toLowerCase()
+      );
+      if (!savedUser) {
+        throw new Error('User was not returned by the Login sheet after saving');
+      }
       setShowAddModal(false);
       setNewUserId('');
       setNewName('');
@@ -231,7 +244,7 @@ export default function UserAccessPage({ notify }) {
       setTimeout(loadUsers, 1500);
     } catch (err) {
       console.error('Failed to add user:', err);
-      if (notify) notify('Failed to add user', 'error');
+      if (notify) notify('User save failed. Please redeploy the Google Apps Script and try again.', 'error');
     } finally {
       setIsAddingUser(false);
     }
