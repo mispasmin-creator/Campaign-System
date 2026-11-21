@@ -6,7 +6,6 @@ import {
 } from '../services/googleSheets';
 import {
   APP_PAGES,
-  DEFAULT_USERS,
   getCurrentUser,
   hasPageAccess,
   getPageAccessLevel,
@@ -18,7 +17,9 @@ import Pagination from '../components/Pagination';
 
 export default function UserAccessPage({ notify }) {
   const [currentUser, setCurrentUserState] = useState(getCurrentUser());
-  const [usersList, setUsersList] = useState(DEFAULT_USERS);
+  // Users are read from the Login tab. Never replace live data with demo
+  // accounts when the sheet is empty or temporarily unavailable.
+  const [usersList, setUsersList] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -58,14 +59,14 @@ export default function UserAccessPage({ notify }) {
     setIsLoading(true);
     try {
       const liveUsers = await fetchUsersFromGoogleSheet();
-      if (Array.isArray(liveUsers) && liveUsers.length > 0) {
+      if (Array.isArray(liveUsers)) {
         setUsersList(liveUsers.map((user) => ({ ...user, role: normalizeUserRole(user.role) })));
       } else {
-        setUsersList(DEFAULT_USERS);
+        setUsersList([]);
       }
     } catch (err) {
       console.warn('[UserAccessPage] Error loading users:', err);
-      setUsersList(DEFAULT_USERS);
+      setUsersList([]);
     } finally {
       setIsLoading(false);
     }
@@ -73,6 +74,13 @@ export default function UserAccessPage({ notify }) {
 
   useEffect(() => {
     loadUsers();
+    const interval = setInterval(loadUsers, 15000);
+    const handleFocus = () => loadUsers();
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   // Open Edit User Modal
@@ -273,7 +281,6 @@ export default function UserAccessPage({ notify }) {
           <button
             type="button"
             className="btn small"
-            hidden
             onClick={loadUsers}
             disabled={isLoading}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}

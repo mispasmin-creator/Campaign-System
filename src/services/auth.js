@@ -62,36 +62,6 @@ export const APP_PAGES = [
   }
 ];
 
-export const DEFAULT_USERS = [
-  {
-    userId: 'admin',
-    name: 'Admin User',
-    password: '123',
-    role: 'Admin',
-    status: 'Active',
-    access: 'All',
-    lastLogin: ''
-  },
-  {
-    userId: 'sanjay',
-    name: 'Sanjay Singh',
-    password: '123',
-    role: 'User',
-    status: 'Active',
-    access: 'dashboard, running, take-shutdown-date, shutdown-inspection',
-    lastLogin: ''
-  },
-  {
-    userId: 'ahitesh',
-    name: 'Ahitesh',
-    password: '123',
-    role: 'User',
-    status: 'Active',
-    access: 'dashboard, visit, take-shutdown-date, restart-process',
-    lastLogin: ''
-  }
-];
-
 /**
  * Check if a user has permission to access or update a specific page
  * @param {Object} user 

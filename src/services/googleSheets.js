@@ -1132,7 +1132,7 @@ export function buildAppDataFromSheetRows(sheetRows, currentData = {}, followupR
       id: `t-${orderNo}-running`,
       serviceOrderNo: orderNo,
       step: 'running',
-      owner: row.step2Inspector || row.inspectionIncharge || 'Sanjay',
+      owner: row.step2Inspector || row.inspectionIncharge || 'Unassigned',
       plannedDate: normalizeSheetDate(row.step2Planned) || campaignStart,
       actualDate: step2Actual || (hasRunningInspection ? (runningDetail?.visitDate || existingRunning?.visitDate || campaignStart) : null),
       delayDays: Number(row.step2Delay) || 0,
@@ -1179,7 +1179,7 @@ export function buildAppDataFromSheetRows(sheetRows, currentData = {}, followupR
       id: `t-${orderNo}-call`,
       serviceOrderNo: orderNo,
       step: 'call',
-      owner: 'Sanjay',
+      owner: row.step3Inspector || row.inspectionIncharge || 'Unassigned',
       plannedDate: step3PlannedDate,
       actualDate: isStep3Done ? (step3Actual || (latestCall?.timestamp ? latestCall.timestamp.slice(0, 10) : (step2Actual || campaignStart))) : null,
       delayDays: Number(row.step3Delay) || 0,
@@ -1191,7 +1191,7 @@ export function buildAppDataFromSheetRows(sheetRows, currentData = {}, followupR
       id: `t-${orderNo}-shutdown`,
       serviceOrderNo: orderNo,
       step: 'shutdown',
-      owner: row.step4Inspector || 'Sanjay',
+      owner: row.step4Inspector || row.inspectionIncharge || 'Unassigned',
       plannedDate: normalizeSheetDate(row.step4Planned) || expectedShutdown,
       actualDate: step4Actual || null,
       delayDays: Number(row.step4Delay) || 0,
@@ -2272,19 +2272,12 @@ function doGet(e) {
   if (sheetParam.toLowerCase() === 'login' || sheetParam.toLowerCase() === 'login page' || actionParam === 'getUsers') {
     let loginSheet = ss.getSheetByName('Login Page') || ss.getSheetByName('Login') || ss.getSheetByName('login') || ss.getSheetByName('login page') || ss.getSheetByName('Users');
     if (!loginSheet) {
-      // Auto-create Login sheet with headers if not present
+      // Create only the schema. User records must come from the sheet and
+      // must never be silently seeded by the integration.
       loginSheet = ss.insertSheet('Login');
       const headers = ['User ID', 'Name', 'Password', 'Role', 'Status', 'Access', 'Last Login'];
       loginSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       loginSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#E8F0FE');
-      loginSheet.appendRow(['admin', 'Admin User', '123', 'Admin', 'Active', 'All', '']);
-      loginSheet.appendRow(['sanjay', 'Sanjay Singh', '123', 'User', 'Active', 'dashboard, running, take-shutdown-date, shutdown-inspection', '']);
-      loginSheet.appendRow(['ahitesh', 'Ahitesh', '123', 'User', 'Active', 'dashboard, visit, take-shutdown-date, restart-process, masters', '']);
-    } else if (loginSheet.getLastRow() <= 1) {
-      // If sheet exists with only header, populate initial users
-      loginSheet.appendRow(['admin', 'Admin User', '123', 'Admin', 'Active', 'All', '']);
-      loginSheet.appendRow(['sanjay', 'Sanjay Singh', '123', 'User', 'Active', 'dashboard, running, take-shutdown-date, shutdown-inspection', '']);
-      loginSheet.appendRow(['ahitesh', 'Ahitesh', '123', 'User', 'Active', 'dashboard, visit, take-shutdown-date, restart-process, masters', '']);
     }
     
     const lastRow = loginSheet.getLastRow();

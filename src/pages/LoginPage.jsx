@@ -5,11 +5,12 @@ import {
 } from '../services/googleSheets';
 import {
   setCurrentUser,
-  DEFAULT_USERS
 } from '../services/auth';
 
 export default function LoginPage({ onLogin, notify, theme, toggleTheme }) {
-  const [usersList, setUsersList] = useState(DEFAULT_USERS);
+  // The Login tab is the only source of truth.  Do not seed this state with
+  // demo users: a missing/empty sheet must not silently authenticate anyone.
+  const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [sheetStatus, setSheetStatus] = useState('checking'); // 'connected' | 'offline' | 'checking'
 
@@ -28,18 +29,18 @@ export default function LoginPage({ onLogin, notify, theme, toggleTheme }) {
       try {
         const sheetUsers = await fetchUsersFromGoogleSheet();
         if (!isMounted) return;
-        if (Array.isArray(sheetUsers) && sheetUsers.length > 0) {
+        if (Array.isArray(sheetUsers)) {
           setUsersList(sheetUsers);
           setSheetStatus('connected');
         } else {
-          setUsersList(DEFAULT_USERS);
+          setUsersList([]);
           setSheetStatus(sheetUsers ? 'connected' : 'offline');
         }
       } catch (err) {
         console.warn('[LoginPage] Error fetching users from sheet:', err);
         if (isMounted) {
           setSheetStatus('offline');
-          setUsersList(DEFAULT_USERS);
+          setUsersList([]);
         }
       } finally {
         if (isMounted) setIsLoadingUsers(false);
@@ -69,7 +70,7 @@ export default function LoginPage({ onLogin, notify, theme, toggleTheme }) {
       let liveUsers = usersList;
       try {
         const fresh = await fetchUsersFromGoogleSheet();
-        if (Array.isArray(fresh) && fresh.length > 0) {
+        if (Array.isArray(fresh)) {
           liveUsers = fresh;
           setUsersList(fresh);
         }
